@@ -19,7 +19,7 @@ For each intern, create Signal objects from their skills:
 - Each interest → signal with event_type "interest_identified"
 ## Example
 Intern: Aditi Mehta
-- Goals: ["Build a startup", "Become a lead AI Engineer]
+- Goals: ["Build a startup", "Become a lead AI Engineer"]
 - Skills: ["python", "tensorflow", "deeplearning"]
 - Signals: 3 signals (one per skill)
 ## Output Format
