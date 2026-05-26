@@ -1,0 +1,51 @@
+[
+  {
+    "id": "jaivardhan_singh",
+    "name": "Jaivardhan Singh",
+    "goals": ["Master Agentic RAG systems", "Build AI automation pipelines"],
+    "interests": ["AI Automation", "digital twins", "LLMs"],
+    "skills": ["python", "NLP", "agentic-rag", "ml"]
+  },
+  {
+    "id": "aditi_mehta",
+    "name": "Aditi Mehta",
+    "goals": ["Become Lead AI Architect", "Build AI systems for social impact"],
+    "interests": ["ai-agents", "machine learning", "backend", "web development"],
+    "skills": ["python", "pytorch", "flask", "postgresql", "react", "xgboost"]
+  },
+  {
+    "id": "jahanvi_gupta",
+    "name": "Jahanvi Gupta",
+    "goals": ["Engineering Leader", "Master Fullstack"],
+    "interests": ["Frontend", "Backend", "AI/ML", "Data", "DevOps", "Data Viz"],
+    "skills": ["frontend", "backend", "ai/ml", "devops", "data-viz"]
+  },
+  {
+    "id": "adil_islam",
+    "name": "Adil Islam",
+    "goals": ["Architect Scalable Systems", "Pioneer Digital Twins"],
+    "interests": ["Frontend", "AI/ML", "Data Engineering", "Simulation"],
+    "skills": ["frontend", "ai", "ml", "data-engineering", "simulation"]
+  },
+  {
+    "id": "yashika_verma",
+    "name": "Yashika Verma",
+    "goals": ["Cloud Infrastructure Expert", "Lead ML Ops"],
+    "interests": ["AI/ML engineering", "Data layer", "Testing"],
+    "skills": ["python", "pytorch", "react"]
+  },
+  {
+    "id": "aryan",
+    "name": "Aryan",
+    "goals": ["AI Researcher", "Open Source Contributor"],
+    "interests": ["Agentic workflows", "Backend development", "Fullstack engineering"],
+    "skills": ["python", "pytorch", "react", "langchain", "django", "langgraph"]
+  },
+  {
+    "id": "daksh_garg",
+    "name": "Daksh Garg",
+    "goals": ["Solve Real-World Problems", "Senior Tech Lead"],
+    "interests": ["Agent frameworks", "Data pipelines", "Spatial computing"],
+    "skills": ["python", "ml", "react", "node", "unity", "ar/vr", "docker"]
+  }
+]
