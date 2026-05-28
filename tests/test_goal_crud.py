@@ -6,23 +6,29 @@ import pytest
 
 
 class TestCreateGoal:
-    def test_create_returns_201(self, client, sample_goal) -> None:
+    def test_create_returns_201(self, client, sample_goal, phase_gate_enabled: bool) -> None:
         """POST /api/v1/goals/ should create a goal."""
+        if not phase_gate_enabled:
+            pytest.skip("Phase gate tests are disabled by default. Set LPI_RUN_PHASE_GATES=1 to enable.")
         response = client.post("/api/v1/goals/", json=sample_goal)
         assert response.status_code in (200, 201)
         data = response.json()
         assert data["title"] == "Learn Docker"
         assert "id" in data
 
-    def test_create_assigns_smile_phase(self, client, sample_goal) -> None:
+    def test_create_assigns_smile_phase(self, client, sample_goal, phase_gate_enabled: bool) -> None:
         """New goal should have the specified SMILE phase."""
+        if not phase_gate_enabled:
+            pytest.skip("Phase gate tests are disabled by default. Set LPI_RUN_PHASE_GATES=1 to enable.")
         response = client.post("/api/v1/goals/", json=sample_goal)
         assert response.json()["smile_phase"] == "sense"
 
 
 class TestReadGoal:
-    def test_list_goals(self, client) -> None:
+    def test_list_goals(self, client, phase_gate_enabled: bool) -> None:
         """GET /api/v1/goals/ should return a list."""
+        if not phase_gate_enabled:
+            pytest.skip("Phase gate tests are disabled by default. Set LPI_RUN_PHASE_GATES=1 to enable.")
         response = client.get("/api/v1/goals/")
         assert response.status_code == 200
         assert isinstance(response.json(), list)

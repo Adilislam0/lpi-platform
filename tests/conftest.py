@@ -1,7 +1,18 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
 from lpi.main import app
+
+
+def _phase_gate_enabled() -> bool:
+    return os.getenv("LPI_RUN_PHASE_GATES", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+@pytest.fixture(scope="session")
+def phase_gate_enabled() -> bool:
+    return _phase_gate_enabled()
 
 
 @pytest.fixture

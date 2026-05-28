@@ -6,8 +6,10 @@ import pytest
 
 
 class TestRecommendations:
-    def test_get_recommendations(self, client) -> None:
+    def test_get_recommendations(self, client, phase_gate_enabled: bool) -> None:
         """GET /api/v1/recommendations/{user_id} should return suggestions."""
+        if not phase_gate_enabled:
+            pytest.skip("Phase gate tests are disabled by default. Set LPI_RUN_PHASE_GATES=1 to enable.")
         response = client.get("/api/v1/recommendations/test-user")
         assert response.status_code == 200
         data = response.json()
@@ -21,8 +23,10 @@ class TestRecommendations:
         """Each recommendation should reference which SMILE phase it serves."""
         pytest.skip("Implement after recommendation engine built")
 
-    def test_max_3_recommendations(self, client) -> None:
+    def test_max_3_recommendations(self, client, phase_gate_enabled: bool) -> None:
         """Should return at most 3 recommendations by default."""
+        if not phase_gate_enabled:
+            pytest.skip("Phase gate tests are disabled by default. Set LPI_RUN_PHASE_GATES=1 to enable.")
         response = client.get("/api/v1/recommendations/test-user?limit=3")
         assert response.status_code == 200
         assert len(response.json()) <= 3
