@@ -1,95 +1,170 @@
-# Goal Endpoints QA Matrix — Phase 2
+# Goal Endpoints — QA Checklist & Matrix (Draft)
 
-**QA Lead:** Daksh Garg  
-**Scope:** `POST`, `GET`, `PATCH`, `DELETE` on `/api/v1/goals/`  
-**Base URL (local):** `http://127.0.0.1:8000`
-
-Legend: **Current** = behavior today (stubs); **Target** = expected after Phase 2 implementation.
+**QA Lead:** Daksh Garg | **Phase:** 2 (Goal CRUD)  
+**Base URL:** `http://localhost:8000` | **Swagger:** `/docs`  
+**Status:** Draft — execute after Phase 2 implementation (stubs currently return `500`)
 
 ---
 
-## POST `/api/v1/goals/`
+## Endpoint checklist (sign-off)
 
-| ID | Category | Test case | Request body | Expected status (target) | Expected response (target) | Current status |
-|----|----------|-----------|--------------|----------------------------|----------------------------|----------------|
-| G-POST-01 | Happy path | Create goal with all fields | Valid `GoalCreate` (title, description, priority, smile_phase) | `200` or `201` | Goal JSON with `id`, `user_id`, `created_at`, `updated_at` | `500` |
-| G-POST-02 | Happy path | Create goal with title only | `{"title": "Learn Docker"}` | `200` or `201` | Goal with defaults: `priority=5`, `smile_phase=sense` | `500` |
-| G-POST-03 | Validation | Missing required `title` | `{}` or no title | `422` | Validation error detail | `422` or `500` |
-| G-POST-04 | Validation | Empty `title` | `{"title": ""}` | `422` or `400` | Error message | `422` or `500` |
-| G-POST-05 | Validation | Invalid `smile_phase` | `{"title": "X", "smile_phase": "invalid"}` | `422` | Enum validation error | `422` |
-| G-POST-06 | Validation | Priority out of range (if enforced) | `{"title": "X", "priority": 0}` | `422` or `400` | Error message | `422` or `500` |
-| G-POST-07 | Validation | Priority out of range high | `{"title": "X", "priority": 11}` | `422` or `400` | Error message | `422` or `500` |
-| G-POST-08 | Error | Malformed JSON | Invalid JSON body | `422` | Parse/validation error | `422` |
-| G-POST-09 | Error | Wrong content type | `text/plain` body | `422` or `415` | Error message | `422` or `415` |
+| # | Endpoint | Method | Happy path | Error paths | Pass |
+|---|----------|--------|------------|-------------|------|
+| 1 | `/api/v1/goals/` | POST | G-POST-H* | G-POST-E* | [ ] |
+| 2 | `/api/v1/goals/` | GET | G-GETL-H* | G-GETL-E* | [ ] |
+| 3 | `/api/v1/goals/{goal_id}` | GET | G-GET-H* | G-GET-E* | [ ] |
+| 4 | `/api/v1/goals/{goal_id}` | PATCH | G-PATCH-H* | G-PATCH-E* | [ ] |
+| 5 | `/api/v1/goals/{goal_id}` | DELETE | G-DEL-H* | G-DEL-E* | [ ] |
+
+**Gate:** `LPI_RUN_PHASE_GATES=1 pytest tests/test_goal_crud.py -v`
 
 ---
 
-## GET `/api/v1/goals/`
+## 1. POST `/api/v1/goals/` — Create goal
 
-| ID | Category | Test case | Query / setup | Expected status (target) | Expected response (target) | Current status |
-|----|----------|-----------|---------------|----------------------------|----------------------------|----------------|
-| G-GETL-01 | Happy path | List all goals (empty) | No goals created | `200` | `[]` | `500` |
-| G-GETL-02 | Happy path | List all goals (with data) | After 2+ creates | `200` | Array of Goal objects | `500` |
-| G-GETL-03 | Happy path | Filter by `user_id` | `?user_id=test-user` | `200` | Only matching user’s goals | `500` |
-| G-GETL-04 | Validation | Unknown query param (if strict) | `?foo=bar` | `200` (ignore) or `422` | Per API policy | `500` |
-| G-GETL-05 | Error | Invalid method | `POST` to list URL without body | `405` or `422` | Method/body error | `405`/`422` |
+### Happy path
 
----
+| ID | Test case | Request | Expected status | Expected response |
+|----|-----------|---------|-----------------|-------------------|
+| G-POST-H01 | Create with all fields | `{"title":"Learn Docker","description":"Containers","priority":7,"smile_phase":"sense"}` | `200` or `201` | `Goal` with `id`, `user_id`, `created_at`, `updated_at` |
+| G-POST-H02 | Create with title only | `{"title":"Learn Docker"}` | `200` or `201` | `priority=5`, `smile_phase=sense`, `description=""` |
+| G-POST-H03 | Create each SMILE phase | `smile_phase` = `sense` … `evolve` | `200` or `201` | Phase echoed in response |
+| G-POST-H04 | Minimum priority | `{"title":"X","priority":1}` | `200` or `201` | `priority: 1` |
+| G-POST-H05 | Maximum priority | `{"title":"X","priority":10}` | `200` or `201` | `priority: 10` |
 
-## GET `/api/v1/goals/{goal_id}`
+### Error paths
 
-| ID | Category | Test case | Path / setup | Expected status (target) | Expected response (target) | Current status |
-|----|----------|-----------|--------------|----------------------------|----------------------------|----------------|
-| G-GET-01 | Happy path | Get existing goal | Valid `goal_id` from create | `200` | Full Goal JSON | `500` |
-| G-GET-02 | Error | Goal not found | Random UUID | `404` | `{"detail": "Goal not found"}` (or equivalent) | `500` |
-| G-GET-03 | Validation | Invalid ID format (if validated) | `goal_id=not-a-uuid` | `404` or `422` | Error message | `500` |
-| G-GET-04 | Error | Empty path segment | `/api/v1/goals/` vs missing id | `404` or `307` | Routing behavior documented | N/A |
-
----
-
-## PATCH `/api/v1/goals/{goal_id}`
-
-| ID | Category | Test case | Request body | Expected status (target) | Expected response (target) | Current status |
-|----|----------|-----------|--------------|----------------------------|----------------------------|----------------|
-| G-PATCH-01 | Happy path | Update title | `{"title": "Updated title"}` | `200` | Goal with new title, `updated_at` changed | `500` |
-| G-PATCH-02 | Happy path | Update smile_phase (valid forward) | `sense` → `model` | `200` | Goal with `smile_phase: model` | `500` |
-| G-PATCH-03 | Happy path | Partial update (priority only) | `{"priority": 9}` | `200` | Other fields unchanged | `500` |
-| G-PATCH-04 | Validation | Invalid phase skip | `sense` → `intervene` | `400` or `422` | SMILE transition rejected | `500` |
-| G-PATCH-05 | Validation | Same phase no-op | `sense` → `sense` | `400` or `422` | Rejected per SMILE rules | `500` |
-| G-PATCH-06 | Validation | Invalid enum value | `{"smile_phase": "bogus"}` | `422` | Validation error | `422` or `500` |
-| G-PATCH-07 | Error | Goal not found | Random `goal_id` | `404` | Not found detail | `500` |
-| G-PATCH-08 | Error | Empty patch body | `{}` | `200` (no-op) or `422` | Per API policy | `500` |
-| G-PATCH-09 | Error | Malformed JSON | Invalid JSON | `422` | Validation error | `422` |
+| ID | Test case | Request | Expected status | Expected response |
+|----|-----------|---------|-----------------|-------------------|
+| G-POST-E01 | Missing `title` | `{}` | `422` | Validation error (`title` required) |
+| G-POST-E02 | Empty `title` | `{"title":""}` | `422` or `400` | Validation / business rule error |
+| G-POST-E03 | Invalid `smile_phase` | `{"title":"X","smile_phase":"invalid"}` | `422` | Enum validation error |
+| G-POST-E04 | Priority below range | `{"title":"X","priority":0}` | `422` or `400` | Out-of-range error (if enforced) |
+| G-POST-E05 | Priority above range | `{"title":"X","priority":11}` | `422` or `400` | Out-of-range error (if enforced) |
+| G-POST-E06 | Wrong type for `priority` | `{"title":"X","priority":"high"}` | `422` | Type validation error |
+| G-POST-E07 | Malformed JSON | `{invalid json` | `422` | Parse error |
+| G-POST-E08 | Wrong `Content-Type` | `text/plain` body | `415` or `422` | Unsupported media / validation |
 
 ---
 
-## DELETE `/api/v1/goals/{goal_id}`
+## 2. GET `/api/v1/goals/` — List goals
 
-| ID | Category | Test case | Path / setup | Expected status (target) | Expected response (target) | Current status |
-|----|----------|-----------|--------------|----------------------------|----------------------------|----------------|
-| G-DEL-01 | Happy path | Delete existing goal | Valid `goal_id` | `200` or `204` | Success payload or empty body | `500` |
-| G-DEL-02 | Happy path | Verify deleted | GET same id after delete | `404` | Not found | `500` |
-| G-DEL-03 | Error | Delete non-existent goal | Random UUID | `404` | Not found detail | `500` |
-| G-DEL-04 | Error | Double delete | Delete same id twice | `404` on second call | Not found | `500` |
-| G-DEL-05 | Error | Invalid ID format | `goal_id=bad` | `404` or `422` | Error message | `500` |
+### Happy path
 
----
+| ID | Test case | Request | Expected status | Expected response |
+|----|-----------|---------|-----------------|-------------------|
+| G-GETL-H01 | Empty list | `GET /api/v1/goals/` (no data) | `200` | `[]` |
+| G-GETL-H02 | Multiple goals | After 2+ POST creates | `200` | Array of `Goal` objects |
+| G-GETL-H03 | Filter by `user_id` | `GET /api/v1/goals/?user_id=alice` | `200` | Only Alice’s goals |
+| G-GETL-H04 | Filter returns empty | `?user_id=unknown` | `200` | `[]` |
 
-## Cross-cutting checks (all Goal endpoints)
+### Error paths
 
-| ID | Category | Test case | Expected (target) |
-|----|----------|-----------|-------------------|
-| G-X-01 | Contract | Response matches OpenAPI `Goal` schema | All required fields present |
-| G-X-02 | Contract | `Content-Type: application/json` on JSON responses | Header present |
-| G-X-03 | Security | No auth header (Phase 1) | Same as authenticated until auth added |
-| G-X-04 | Performance | Single request latency (local) | &lt; 500ms smoke threshold |
+| ID | Test case | Request | Expected status | Expected response |
+|----|-----------|---------|-----------------|-------------------|
+| G-GETL-E01 | Wrong HTTP method | `POST` without body to list URL | `405` or `422` | Method not allowed / validation |
+| G-GETL-E02 | Invalid query type (if strict) | `?limit=not-int` (if param added later) | `422` | Validation error |
 
 ---
 
-## Sign-off checklist (Phase 2 gate)
+## 3. GET `/api/v1/goals/{goal_id}` — Get goal by ID
 
-- [ ] All happy-path rows pass with target status codes
-- [ ] Validation rows return `422`/`400` as specified
-- [ ] Not-found rows return `404`
-- [ ] SMILE phase transition rules enforced on PATCH
-- [ ] `LPI_RUN_PHASE_GATES=1 pytest tests/test_goal_crud.py -v` passes
+### Happy path
+
+| ID | Test case | Request | Expected status | Expected response |
+|----|-----------|---------|-----------------|-------------------|
+| G-GET-H01 | Get existing goal | `GET /api/v1/goals/{id}` (id from POST) | `200` | Full `Goal` JSON |
+| G-GET-H02 | Fields match create | Compare POST body vs GET | `200` | Same `title`, `smile_phase`, etc. |
+
+### Error paths
+
+| ID | Test case | Request | Expected status | Expected response |
+|----|-----------|---------|-----------------|-------------------|
+| G-GET-E01 | Goal not found | `GET /api/v1/goals/00000000-0000-0000-0000-000000000099` | `404` | `{"detail":"Goal not found"}` (or equivalent) |
+| G-GET-E02 | Invalid ID format | `GET /api/v1/goals/not-a-valid-id` | `404` or `422` | Not found / validation |
+| G-GET-E03 | Deleted goal | GET after DELETE | `404` | Not found |
+
+---
+
+## 4. PATCH `/api/v1/goals/{goal_id}` — Update goal
+
+### Happy path
+
+| ID | Test case | Request | Expected status | Expected response |
+|----|-----------|---------|-----------------|-------------------|
+| G-PATCH-H01 | Update title | `{"title":"New title"}` | `200` | Updated title; `updated_at` newer |
+| G-PATCH-H02 | Update description | `{"description":"Updated"}` | `200` | Description changed |
+| G-PATCH-H03 | Update priority | `{"priority":9}` | `200` | Priority changed |
+| G-PATCH-H04 | Forward SMILE step | `sense` → `model` | `200` | `smile_phase: model` |
+| G-PATCH-H05 | Backward SMILE step | `learn` → `sense` | `200` | Allowed re-evaluation |
+| G-PATCH-H06 | Partial update | Only one field in body | `200` | Other fields unchanged |
+
+### Error paths
+
+| ID | Test case | Request | Expected status | Expected response |
+|----|-----------|---------|-----------------|-------------------|
+| G-PATCH-E01 | Goal not found | PATCH random UUID | `404` | Not found |
+| G-PATCH-E02 | SMILE skip (sense → intervene) | `{"smile_phase":"intervene"}` on sense goal | `400` or `422` | Transition rejected |
+| G-PATCH-E03 | SMILE same phase | `sense` → `sense` | `400` or `422` | No-op rejected |
+| G-PATCH-E04 | Invalid enum | `{"smile_phase":"bogus"}` | `422` | Validation error |
+| G-PATCH-E05 | Invalid priority | `{"priority":99}` | `422` or `400` | Range error |
+| G-PATCH-E06 | Malformed JSON | Invalid body | `422` | Parse error |
+| G-PATCH-E07 | Empty body policy | `{}` | `200` (no-op) or `422` | Document team choice |
+
+---
+
+## 5. DELETE `/api/v1/goals/{goal_id}` — Delete goal
+
+### Happy path
+
+| ID | Test case | Request | Expected status | Expected response |
+|----|-----------|---------|-----------------|-------------------|
+| G-DEL-H01 | Delete existing | `DELETE /api/v1/goals/{id}` | `200` or `204` | Success (`{"ok":true}` or empty) |
+| G-DEL-H02 | Not in list after delete | `GET /api/v1/goals/` after delete | `200` | Deleted id absent |
+| G-DEL-H03 | Not retrievable after delete | `GET /api/v1/goals/{id}` after delete | `404` | Not found |
+
+### Error paths
+
+| ID | Test case | Request | Expected status | Expected response |
+|----|-----------|---------|-----------------|-------------------|
+| G-DEL-E01 | Delete non-existent | DELETE random UUID | `404` | Not found |
+| G-DEL-E02 | Double delete | DELETE same id twice | `404` on 2nd call | Not found |
+| G-DEL-E03 | Invalid ID format | `DELETE .../bad-id` | `404` or `422` | Error per API policy |
+| G-DEL-E04 | Wrong method | `GET` on delete-only semantics | N/A | Use DELETE only |
+
+---
+
+## Cross-endpoint flows (integration)
+
+| ID | Flow | Steps | Expected |
+|----|------|-------|----------|
+| G-FLOW-01 | CRUD lifecycle | POST → GET by id → PATCH → GET → DELETE → GET | All status codes as above |
+| G-FLOW-02 | List consistency | POST ×3 → GET list | `200`, length ≥ 3 |
+| G-FLOW-03 | SMILE regression | PATCH illegal transition after legal create | `400`/`422`, goal unchanged |
+
+---
+
+## Execution log (fill during QA run)
+
+| Date | Tester | Build/branch | Pass | Fail | Skip | Notes |
+|------|--------|--------------|------|------|------|-------|
+| | Daksh Garg | `staging` | | | | Stubs: use after Phase 2 merge |
+
+---
+
+## Reference — `Goal` response shape
+
+```json
+{
+  "id": "string",
+  "user_id": "string",
+  "title": "string",
+  "description": "string",
+  "priority": 5,
+  "smile_phase": "sense",
+  "created_at": "ISO-8601",
+  "updated_at": "ISO-8601"
+}
+```
+
+**SMILE rules (PATCH):** forward +1 OK; backward OK; skip (e.g. sense→intervene) NOT OK; same phase NOT OK (`lpi.smile.validate_phase_transition`).
