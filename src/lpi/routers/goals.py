@@ -14,7 +14,7 @@ Changes vs Adil's first version (code review fixes):
   - WARNING-2 FIXED: threading.Lock used via store._goals_lock
 """
 import uuid
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
 
