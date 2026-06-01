@@ -7,7 +7,6 @@ CHANGES vs Adil's first version:
   - Added clear_transition_logs() to conftest autouse fixture (see conftest.py note)
 """
 
-
 class TestCreateGoal:
     def test_create_returns_201(self, client, sample_goal) -> None:
         """POST /api/v1/goals/ should create a goal."""
