@@ -55,3 +55,8 @@ class Recommendation(BaseModel):
     source_goals: list[str] = []
     source_signals: list[str] = []
     created_at: datetime
+
+
+class DeleteResponse(BaseModel):
+    deleted: bool
+    id: str
