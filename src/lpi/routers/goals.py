@@ -14,7 +14,7 @@ Changes vs Adil's first version (code review fixes):
   - WARNING-2 FIXED: threading.Lock used via store._goals_lock
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -38,7 +38,7 @@ def create_goal(goal: GoalCreate) -> Goal:
     - A placeholder user_id (auth is Phase 3)
     - UTC-aware created_at and updated_at timestamps
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     new_goal = Goal(
         id=str(uuid.uuid4()),
@@ -145,7 +145,7 @@ def update_goal(goal_id: str, update: GoalUpdate) -> Goal:
         updated_goal = goal.model_copy(
             update={
                 **update_data,
-                "updated_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(UTC),
             }
         )
 
