@@ -2,6 +2,19 @@ from fastapi import APIRouter
 
 from lpi.models import Signal, SignalCreate
 
+# Phase 3 prep only – not part of Phase 2 gate requirements.
+# In-memory scaffold for future signal storage; not used by route handlers yet.
+_signals: dict[str, Signal] = {}
+
+
+def create_signal_stub() -> None:
+    """
+    Phase 3 preparation only.
+    Actual implementation deferred.
+    """
+    pass
+
+
 router = APIRouter()
 
 
