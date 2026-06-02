@@ -1,4 +1,4 @@
-"""Signals API — Phase 3 prep. POST stub only; not a Phase 2 gate requirement."""
+"""Signals API — Phase 3 prep; not a Phase 2 gate requirement."""
 
 from fastapi import APIRouter
 
@@ -24,3 +24,11 @@ def ingest_signal(signal: SignalCreate) -> Signal:
     """Ingest an activity signal from any stream."""
     create_signal_stub()
     raise NotImplementedError("Phase 3 task: signal ingestion not implemented")
+
+
+@router.get("/", response_model=list[Signal])
+def list_signals() -> list[Signal]:
+    """Phase 3 prep only — GET /signals/ skeleton."""
+    # Phase 3 prep only – not part of Phase 2 gate requirements.
+    # Always return [] until real signal querying is implemented.
+    return []
