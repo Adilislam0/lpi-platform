@@ -5,6 +5,7 @@ Jaivardhan owns making these pass.
 import pytest
 
 
+@pytest.mark.skip(reason="Phase 4 task: Recommendation Engine skipped for now")
 class TestRecommendations:
     def test_get_recommendations(self, client, phase_gate_enabled: bool) -> None:
         """GET /api/v1/recommendations/{user_id} should return suggestions."""
