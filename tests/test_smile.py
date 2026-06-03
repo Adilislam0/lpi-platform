@@ -4,7 +4,7 @@ All team members should understand SMILE after completing onboarding challenges.
 """
 from lpi.models import SmilePhase
 from lpi.smile import get_phase_description, validate_phase_transition
-
+from lpi.utils.logging import phase_transition_logs
 
 class TestPhaseTransitions:
     def test_forward_step_allowed(self) -> None:
@@ -28,3 +28,39 @@ class TestPhaseDescriptions:
         for phase in SmilePhase:
             desc = get_phase_description(phase)
             assert len(desc) > 10
+
+def test_transition_logged(client):
+    phase_transition_logs.clear()
+
+    # create a goal first
+    create_response = client.post(
+        "/api/v1/goals/",
+        json={
+            "title": "Test Goal",
+            "description": "Testing transitions",
+            "priority": 5,
+            "smile_phase": "sense",
+        },
+    )
+
+    assert create_response.status_code in (200, 201)
+
+    goal_id = create_response.json()["id"]
+
+    # valid transition: sense -> model
+    response = client.patch(
+        f"/api/v1/goals/{goal_id}",
+        json={
+            "smile_phase": "model"
+        },
+    )
+
+    assert response.status_code == 200
+
+    assert len(phase_transition_logs) == 1
+
+    log = phase_transition_logs[0]
+
+    assert log["from_phase"] == "sense"
+    assert log["to_phase"] == "model"
+    assert "transitioned_at" in log
