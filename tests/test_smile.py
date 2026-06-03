@@ -6,6 +6,7 @@ from lpi.models import SmilePhase
 from lpi.smile import get_phase_description, validate_phase_transition
 from lpi.utils.logging import phase_transition_logs
 
+
 class TestPhaseTransitions:
     def test_forward_step_allowed(self) -> None:
         assert validate_phase_transition(SmilePhase.SENSE, SmilePhase.MODEL) is True
@@ -54,6 +55,8 @@ def test_transition_logged(client):
             "smile_phase": "model"
         },
     )
+
+    print(phase_transition_logs)
 
     assert response.status_code == 200
 
