@@ -60,7 +60,7 @@ class TestUpdateGoal:
         assert create_resp.status_code in (200, 201)
         goal_id = create_resp.json()["id"]
 
-        # Skipping a phase is forbidden — 422 Unprocessable Entity
+        # Skipping a phase is forbidden — 422 Unprocessable CONTENT
         patch_resp = client.patch(
             f"/api/v1/goals/{goal_id}",
             json={"smile_phase": "intervene"},
