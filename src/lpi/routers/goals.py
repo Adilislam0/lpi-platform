@@ -88,9 +88,9 @@ def list_goals(
     This makes urgency_flag and SMILE phase affect the returned order.
 
     Filter parameters are AND-combined:
-      ?user_id=default_user         → only that user's goals
-      ?smile_phase=sense            → only goals in SENSE phase
-      ?user_id=X&smile_phase=sense  → both filters applied
+      ?user_id=default_user                    → only that user's goals
+      ?smile_phase=reality-emulation           → only goals in REALITY_EMULATION phase
+      ?user_id=X&smile_phase=reality-emulation → both filters applied
     """
     with store._goals_lock:
         goals = list(store._goals.values())

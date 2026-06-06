@@ -15,8 +15,8 @@ Each intern has:
 
 ### Goals
 For each intern, create Goal objects from their stated goals:
-- Goal 1: From "3-year goal" field → priority 9, smile_phase "sense"
-- Goal 2: From "interests" array → combine all interests into a single goal description, priority 6, smile_phase "sense"
+- Goal 1: From "3-year goal" field → priority 9, smile_phase "reality-emulation"
+- Goal 2: From "interests" array → combine all interests into a single goal description, priority 6, smile_phase "reality-emulation"
 
 ### Signals
 For each intern, create Signal objects from their skills and interests:

@@ -1,12 +1,13 @@
 """Shared pytest fixtures for the LPI Platform.
 
-The autouse `clear_store` fixture is the most important thing here.
+SMILE correction: sample_goal now uses "reality-emulation" (Phase 1 of
+the correct 6-phase framework) instead of the hallucinated "sense" value.
+
+The autouse `clear_store` fixture is the most important thing in this file.
 Without it, a goal created in TestCreateGoal leaks into TestReadGoal,
 making test_list_goals see unexpected data and fail non-deterministically
-depending on test execution order.
-
-`autouse=True` means pytest applies this fixture to EVERY test in the
-suite automatically — no test has to explicitly request it.
+depending on test execution order. autouse=True applies it to every test
+automatically without any explicit request.
 """
 
 from collections.abc import Generator
@@ -24,8 +25,7 @@ def clear_store() -> Generator[None, None, None]:
     """Wipe all in-memory state before and after every test.
 
     The `yield` splits setup (before) from teardown (after).
-    Both store.clear_all() and clear_transition_logs() are called on
-    both sides so a failing test cannot pollute the next one.
+    Both sides are cleared so a failing test cannot pollute the next one.
     """
     store.clear_all()
     clear_transition_logs()
@@ -42,11 +42,17 @@ def client() -> TestClient:
 
 @pytest.fixture
 def sample_goal() -> dict:
+    """A minimal valid goal payload.
+
+    SMILE correction: smile_phase changed from "sense" (hallucinated) to
+    "reality-emulation" (Phase 1 of the correct SMILE framework).
+    This is the default starting phase for any new LPI goal.
+    """
     return {
         "title": "Learn Docker",
         "description": "Containerize my applications",
         "priority": 7,
-        "smile_phase": "sense",
+        "smile_phase": "reality-emulation",  # CORRECTED: was "sense"
     }
 
 
