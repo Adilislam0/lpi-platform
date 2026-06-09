@@ -10,7 +10,7 @@ in the goals table between test runs.
 """
 
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from lpi.config import settings
 from lpi.models import Goal, Signal
@@ -43,7 +43,7 @@ def get_goal(goal_id: str) -> Goal | None:
     result = _get_client().table("goals").select("*").eq("id", goal_id).execute()
     if not result.data:
         return None
-    return Goal(**result.data[0])
+    return Goal(**cast(dict, result.data[0]))
 
 
 def list_goals(
@@ -56,7 +56,7 @@ def list_goals(
     if smile_phase:
         query = query.eq("smile_phase", smile_phase)
     result = query.execute()
-    return [Goal(**row) for row in result.data]
+    return [Goal(**cast(dict, row)) for row in result.data]
 
 
 def insert_goal(goal: Goal) -> Goal:
@@ -68,7 +68,7 @@ def update_goal(goal_id: str, updates: dict) -> Goal:
     result = (
         _get_client().table("goals").update(updates).eq("id", goal_id).execute()
     )
-    return Goal(**result.data[0])
+    return Goal(**cast(dict, result.data[0]))
 
 
 def delete_goal(goal_id: str) -> None:
