@@ -42,6 +42,7 @@ NOT the Logs & Analytics tab — that shows infrastructure logs only.
 """
 
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from lpi.models import SmilePhase
 
@@ -154,7 +155,7 @@ def log_user_activity(
     now_iso = datetime.now(UTC).isoformat()
 
     # Build the record once — shared by both destinations
-    record = {
+    record: dict[str, object] = {
         "user_id":     user_id,
         "action":      action,
         "resource_id": resource_id,
@@ -172,7 +173,9 @@ def log_user_activity(
         from lpi.config import settings
         from supabase import create_client  # type: ignore[attr-defined]
         db = create_client(settings.supabase_url, settings.supabase_key)
-        db.table("user_activity_logs").insert(record).execute()
+        # supabase-py client insert() is not typed narrowly enough for mypy,
+        # so cast the record to Any to avoid false-positive type failures.
+        db.table("user_activity_logs").insert(cast(Any, record)).execute()
 
     except Exception as exc:
         # Never let a logging failure break the calling endpoint.
@@ -217,7 +220,7 @@ def log_system_event(
     now_iso = datetime.now(UTC).isoformat()
 
     # Build the record once — shared by both destinations
-    record = {
+    record: dict[str, object] = {
         "event":     event,
         "level":     level,
         "detail":    detail,
@@ -236,7 +239,9 @@ def log_system_event(
         from supabase import create_client  # type: ignore[attr-defined]
 
         db = create_client(settings.supabase_url, settings.supabase_key)
-        db.table("system_logs").insert(record).execute()
+        # supabase-py client insert() is not typed narrowly enough for mypy,
+        # so cast the record to Any to avoid false-positive type failures.
+        db.table("system_logs").insert(cast(Any, record)).execute()
 
     except Exception as exc:
         # Never let a logging failure break the calling code.
