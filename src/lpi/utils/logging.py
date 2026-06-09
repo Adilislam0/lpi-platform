@@ -154,7 +154,7 @@ def log_user_activity(
     now_iso = datetime.now(UTC).isoformat()
 
     # Build the record once — shared by both destinations
-    record = {
+    record: dict[str, object] = {
         "user_id":     user_id,
         "action":      action,
         "resource_id": resource_id,
@@ -217,7 +217,7 @@ def log_system_event(
     now_iso = datetime.now(UTC).isoformat()
 
     # Build the record once — shared by both destinations
-    record = {
+    record: dict[str, object] = {
         "event":     event,
         "level":     level,
         "detail":    detail,
