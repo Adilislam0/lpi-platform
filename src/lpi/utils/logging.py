@@ -41,10 +41,14 @@ Supabase Studio → Table Editor → select table name
 NOT the Logs & Analytics tab — that shows infrastructure logs only.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import cast
 
 from lpi.models import SmilePhase
+
+JsonData = bool | int | float | str | None | list["JsonData"] | dict[str, "JsonData"]
 
 # ── In-memory mirrors (kept for test assertions) ───────────────────────────────
 # Tests call clear_*() helpers in their autouse fixture.
@@ -155,11 +159,12 @@ def log_user_activity(
     now_iso = datetime.now(UTC).isoformat()
 
     # Build the record once — shared by both destinations
-    record: dict[str, object] = {
+    metadata_payload = cast(dict[str, JsonData], metadata or {})
+    record: dict[str, JsonData] = {
         "user_id":     user_id,
         "action":      action,
         "resource_id": resource_id,
-        "metadata":    metadata or {},
+        "metadata":    metadata_payload,
         "logged_at":   now_iso,
     }
 
@@ -173,9 +178,9 @@ def log_user_activity(
         from lpi.config import settings
         from supabase import create_client  # type: ignore[attr-defined]
         db = create_client(settings.supabase_url, settings.supabase_key)
-        # supabase-py client insert() is not typed narrowly enough for mypy,
-        # so cast the record to Any to avoid false-positive type failures.
-        db.table("user_activity_logs").insert(cast(Any, record)).execute()
+        # supabase-py client insert() expects JSON-compatible payloads. The
+        # local record is typed as JsonData to match that contract.
+        db.table("user_activity_logs").insert(cast(JsonData, record)).execute()
 
     except Exception as exc:
         # Never let a logging failure break the calling endpoint.
@@ -220,11 +225,12 @@ def log_system_event(
     now_iso = datetime.now(UTC).isoformat()
 
     # Build the record once — shared by both destinations
-    record: dict[str, object] = {
+    metadata_payload = cast(dict[str, JsonData], metadata or {})
+    record: dict[str, JsonData] = {
         "event":     event,
         "level":     level,
         "detail":    detail,
-        "metadata":  metadata or {},
+        "metadata":  metadata_payload,
         "logged_at": now_iso,
     }
 
@@ -239,9 +245,9 @@ def log_system_event(
         from supabase import create_client  # type: ignore[attr-defined]
 
         db = create_client(settings.supabase_url, settings.supabase_key)
-        # supabase-py client insert() is not typed narrowly enough for mypy,
-        # so cast the record to Any to avoid false-positive type failures.
-        db.table("system_logs").insert(cast(Any, record)).execute()
+        # supabase-py client insert() expects JSON-compatible payloads. The
+        # local record is typed as JsonData to match that contract.
+        db.table("system_logs").insert(cast(JsonData, record)).execute()
 
     except Exception as exc:
         # Never let a logging failure break the calling code.
