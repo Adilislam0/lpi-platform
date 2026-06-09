@@ -157,9 +157,9 @@ def log_user_activity(
         metadata    : Optional extra context dict
     """
     now_iso = datetime.now(UTC).isoformat()
+    metadata_payload = cast(dict[str, JsonData], metadata or {})
 
     # Build the record once — shared by both destinations
-    metadata_payload = cast(dict[str, JsonData], metadata or {})
     record: dict[str, JsonData] = {
         "user_id":     user_id,
         "action":      action,
@@ -223,9 +223,9 @@ def log_system_event(
         metadata : Optional extra context dict
     """
     now_iso = datetime.now(UTC).isoformat()
+    metadata_payload = cast(dict[str, JsonData], metadata or {})
 
     # Build the record once — shared by both destinations
-    metadata_payload = cast(dict[str, JsonData], metadata or {})
     record: dict[str, JsonData] = {
         "event":     event,
         "level":     level,

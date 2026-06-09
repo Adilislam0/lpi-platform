@@ -27,6 +27,7 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
+
 from lpi import store
 from lpi.main import app
 from lpi.utils.logging import clear_all_logs

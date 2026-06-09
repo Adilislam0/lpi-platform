@@ -29,6 +29,7 @@ import time
 from datetime import UTC, datetime
 
 import pytest
+
 from lpi.models import Goal, SmilePhase
 from lpi.scoring import (
     PHASE_WEIGHT,
