@@ -46,7 +46,7 @@ from lpi.models import DeleteResponse, Goal, GoalCreate, GoalUpdate, SmilePhase
 # TASK C: import the SMILE-aware sort function
 from lpi.scoring import sort_goals_by_score
 from lpi.smile import validate_phase_transition
-from lpi.utils.logging import log_transition
+from lpi.utils.logging import log_transition, log_user_activity
 
 router = APIRouter()
 
@@ -72,8 +72,21 @@ def create_goal(goal: GoalCreate) -> Goal:
         updated_at=now,
         **goal.model_dump(),        # includes urgency_flag automatically
     )
-    with store._goals_lock:
-        store._goals[new_goal.id] = new_goal
+    store.insert_goal(new_goal)
+
+    # USER ACTIVITY LOG — dual-sync: in-memory + Supabase user_activity_logs
+    log_user_activity(
+        user_id=new_goal.user_id,
+        action="goal_created",
+        resource_id=new_goal.id,
+        metadata={
+            "title":        new_goal.title,
+            "priority":     new_goal.priority,
+            "smile_phase":  str(new_goal.smile_phase),
+            "urgency_flag": new_goal.urgency_flag,
+        },
+    )
+
     return new_goal
 
 
@@ -92,14 +105,7 @@ def list_goals(
       ?smile_phase=reality-emulation           → only goals in REALITY_EMULATION phase
       ?user_id=X&smile_phase=reality-emulation → both filters applied
     """
-    with store._goals_lock:
-        goals = list(store._goals.values())
-
-    # Apply optional filters
-    if user_id is not None:
-        goals = [g for g in goals if g.user_id == user_id]
-    if smile_phase is not None:
-        goals = [g for g in goals if g.smile_phase == smile_phase]
+    goals = store.list_goals(user_id=user_id, smile_phase=smile_phase)
 
     # TASK C: sort by composite score instead of raw priority
     # sort_goals_by_score() uses:
@@ -111,8 +117,7 @@ def list_goals(
 @router.get("/{goal_id}", response_model=Goal)
 def get_goal(goal_id: str) -> Goal:
     """Fetch a single goal by UUID. 404 if not found."""
-    with store._goals_lock:
-        goal = store._goals.get(goal_id)
+    goal = store.get_goal(goal_id)
     if goal is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -138,38 +143,47 @@ def update_goal(goal_id: str, update: GoalUpdate) -> Goal:
     The exclude_unset=True is the key: it only includes fields the caller
     actually sent, so missing fields never accidentally reset to defaults.
     """
-    with store._goals_lock:
-        goal = store._goals.get(goal_id)
-        if goal is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Goal {goal_id} not found",
-            )
-
-        # SMILE transition validation (only when phase actually changes)
-        if update.smile_phase is not None and update.smile_phase != goal.smile_phase:
-            if not validate_phase_transition(goal.smile_phase, update.smile_phase):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=(
-                        f"Invalid SMILE transition: {goal.smile_phase} → "
-                        f"{update.smile_phase}. Skipping phases is not allowed."
-                    ),
-                )
-            # Log transition before applying the update
-            log_transition(
-                goal_id=goal_id,
-                from_phase=goal.smile_phase,
-                to_phase=update.smile_phase,
-                user_id=goal.user_id,
-            )
-
-        # exclude_unset=True: only send fields the caller actually included
-        update_data = update.model_dump(exclude_unset=True)
-        updated_goal = goal.model_copy(
-            update={**update_data, "updated_at": datetime.now(UTC)}
+    goal = store.get_goal(goal_id)
+    if goal is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Goal {goal_id} not found",
         )
-        store._goals[goal_id] = updated_goal
+
+    # SMILE transition validation (only when phase actually changes)
+    if update.smile_phase is not None and update.smile_phase != goal.smile_phase:
+        if not validate_phase_transition(goal.smile_phase, update.smile_phase):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Invalid SMILE transition: {goal.smile_phase} → "
+                    f"{update.smile_phase}. Skipping phases is not allowed."
+                ),
+            )
+        # TRANSITION LOG — dual-sync: in-memory + Supabase goal_phase_transitions
+        # Written before applying the update so the from_phase is still correct.
+        # str(SmilePhase) returns the slug automatically — no literal strings here.
+        log_transition(
+            goal_id=goal_id,
+            from_phase=goal.smile_phase,
+            to_phase=update.smile_phase,
+            user_id=goal.user_id,
+        )
+
+    # exclude_unset=True: only send fields the caller actually included
+    update_data = update.model_dump(exclude_unset=True)
+    updated_goal = store.update_goal(
+        goal_id,
+        {**update_data, "updated_at": datetime.now(UTC).isoformat()},
+    )
+
+    # USER ACTIVITY LOG — dual-sync: in-memory + Supabase user_activity_logs
+    log_user_activity(
+        user_id=goal.user_id,
+        action="goal_updated",
+        resource_id=goal_id,
+        metadata={"updated_fields": list(update_data.keys())},
+    )
 
     return updated_goal
 
@@ -180,11 +194,20 @@ def delete_goal(goal_id: str) -> DeleteResponse:
 
     Field is `id` (not `goal_id`) — matches the OpenAPI contract.
     """
-    with store._goals_lock:
-        if goal_id not in store._goals:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Goal {goal_id} not found",
-            )
-        store._goals.pop(goal_id)
+    goal = store.get_goal(goal_id)
+    if goal is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Goal {goal_id} not found",
+        )
+    store.delete_goal(goal_id)
+
+    # USER ACTIVITY LOG — dual-sync: in-memory + Supabase user_activity_logs
+    log_user_activity(
+        user_id=goal.user_id,
+        action="goal_deleted",
+        resource_id=goal_id,
+        metadata={"title": goal.title},
+    )
+
     return DeleteResponse(deleted=True, id=goal_id)
