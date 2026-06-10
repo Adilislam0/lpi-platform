@@ -6,7 +6,11 @@ Adil owns making these pass.
 import pytest
 
 
-@pytest.mark.skip(reason="Phase 3 task: Activity Signals skipped for now") # jsut remove this line when ready to work on these tests
+@pytest.mark.skip(
+    reason=(
+        "Phase 3 task: Activity Signals skipped for now"
+    ),
+)
 class TestIngestSignal:
     def test_ingest_returns_signal(self, client, sample_signal) -> None:
         """POST /api/v1/signals/ should store and return the signal."""
@@ -25,7 +29,11 @@ class TestIngestSignal:
             assert response.status_code in (200, 201)
 
 
-@pytest.mark.skip(reason="Phase 3 task: Activity Signals skipped for now")# just remove this line when ready to work on these tests
+@pytest.mark.skip(
+    reason=(
+        "Phase 3 task: Activity Signals skipped for now"
+    ),
+)
 class TestQuerySignals:
     def test_list_signals(self, client) -> None:
         """GET /api/v1/signals/ should return a list."""

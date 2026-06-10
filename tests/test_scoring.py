@@ -3,7 +3,7 @@
 Owner : Jaivardhan Singh
 QA    : Daksh Garg
 
-CORRECTION NOTEE
+CORRECTION NOTE
 ═══════════════════════════════════════════════════════════════
 The previous test file used hallucinated phase names (SENSE, MODEL,
 INTERVENE, LEARN, EVOLVE) and their associated weights (1–5).
@@ -245,7 +245,12 @@ class TestScoreGoalProperties:
             SmilePhase.PERPETUAL_WISDOM,
         ]]
         for i in range(len(scores) - 1):
-            assert scores[i] < scores[i + 1], f"Phase {i} score {scores[i]} should be < {scores[i+1]}"
+            assert (
+                scores[i] < scores[i + 1]
+            ), (
+                f"Phase {i} score {scores[i]} should be < "
+                f"{scores[i+1]}"
+            )
 
     def test_deterministic(self) -> None:
         g = _goal(7, SmilePhase.COLLECTIVE_INTELLIGENCE, True)

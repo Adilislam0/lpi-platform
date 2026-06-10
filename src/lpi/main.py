@@ -7,8 +7,9 @@ Phase 2 changes vs Phase 1:
   - recommendations router now returns [] instead of crashing (500 → 200)
 """
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
@@ -17,7 +18,7 @@ from lpi.routers import goals, recommendations, signals
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup / shutdown hook. No-op in Phase 2.
 
     Phase 3: initialise Supabase connection pool on startup:
@@ -29,7 +30,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="LPI Platform",
-    description="Life Programmable Interface: goal registry, activity signals, recommendation engine",
+    description=(
+        "Life Programmable Interface: goal registry, activity signals, "
+        "recommendation engine"
+    ),
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -52,5 +56,5 @@ def health() -> dict:
     return {
         "status": "ok",
         "version": "0.1.0",
-        "timestamp": datetime.now(timezone.utc).isoformat(), # noqa: UP017
+        "timestamp": datetime.now(UTC).isoformat(),
     }

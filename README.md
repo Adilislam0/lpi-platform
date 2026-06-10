@@ -1,27 +1,178 @@
 # LPI Platform — Life Programmable Interface
 
-Goal registry, activity signals, recommendation engine — powered by SMILE methodology.
+Goal registry, activity signals, and recommendation engine — powered by the
+**SMILE methodology** (Sustainable Methodology for Impact Lifecycle Enablement).
+
+---
 
 ## Quick Start
+
 ```bash
 pip install -e ".[dev]"
-make test  # smoke + SMILE tests pass immediately
-make run   # FastAPI on port 8000
+supabase start                  # start local Supabase (Docker required)
+supabase db push                # apply all migrations
+make test                       # full test suite — must be green before any PR
+make run                        # FastAPI on http://localhost:8000
+# Swagger UI → http://localhost:8000/docs
 ```
+
+---
 
 ## Architecture
-```
-Module 1: Goals  ->  Priority scoring + SMILE phase tracking
-Module 2: Signals ->  Events from all streams (Boardy, DataPro+, VSAB, etc.)
-Module 3: Recommendations ->  Goals + Signals -> Top 3 actions with SMILE reasoning
+Module 1: Goals           →  CRUD, SMILE phase tracking, composite scoring
+Module 2: Signals         →  Activity events from Boardy, DataPro+, VSAB, etc.
+Module 3: Recommendations →  Goals + Signals → Top 3 SMILE-grounded actions
+
+### Layer map
+src/lpi/
+├── models.py               Pydantic schemas — SmilePhase enum (source of truth)
+├── smile.py                Phase order, transition rules, descriptions, key questions
+├── scoring.py              Composite score: priority×0.5 + phase×0.3 + urgency×0.2
+├── store.py                Supabase CRUD — all persistence goes through here
+├── config.py               Settings from .env (supabase_url, supabase_key)
+├── main.py                 FastAPI app, lifespan hook, router registration
+├── middleware/             CORS + TimingMiddleware (X-Process-Time, X-Request-ID)
+├── routers/
+│   ├── goals.py            POST / GET / PATCH / DELETE /api/v1/goals
+│   ├── signals.py          Signal ingestion endpoints
+│   └── recommendations.py  Recommendation engine stub
+└── utils/
+└── logging.py          Dual-sync logging — in-memory (tests) + Supabase (production)
+
+---
+
+## SMILE Methodology — 6 Phases
+
+Source: `data/smile-framework.json` — Author: Nicolas Waern, WINNIIO / LifeAtlas  
+Full name: **Sustainable Methodology for Impact Lifecycle Enablement**  
+Principle: *"Impact first, data last."*
+
+| # | Phase | Slug | Key concept |
+|---|---|---|---|
+| 1 | Reality Emulation | `reality-emulation` | Establish the reality canvas — the foundation |
+| 2 | Concurrent Engineering | `concurrent-engineering` | Virtual MVT before physical commit |
+| 3 | Collective Intelligence | `collective-intelligence` | Ontology factory, sensors, KPIs connected |
+| 4 | Contextual Intelligence | `contextual-intelligence` | Real-time decisions, connected twin |
+| 5 | Continuous Intelligence | `continuous-intelligence` | AI prognostics, black swan detection |
+| 6 | Perpetual Wisdom | `perpetual-wisdom` | Share impact, circular strategies |
+
+**Transition rules:**
+- ✅ Forward exactly one step
+- ✅ Backward any number of steps (re-evaluation always valid)
+- ❌ Skipping forward → `422 Unprocessable Entity`
+- ❌ Same phase → `422 Unprocessable Entity`
+
+**Scoring formula:**
+score = (priority × 0.5) + (phase_weight × 0.3) + (urgency_flag × 0.2)
+Score range: `[0.80, 7.00]`. Higher score = surfaced earlier in `GET /api/v1/goals/`.
+
+---
+
+## Supabase Schema
+
+| Table | Purpose | Written by |
+|---|---|---|
+| `goals` | All goal data | `store.py` |
+| `goal_phase_transitions` | SMILE phase change audit trail | `utils/logging.py` → `log_transition()` |
+| `user_activity_logs` | Create / update / delete events | `utils/logging.py` → `log_user_activity()` |
+| `system_logs` | Platform-level events | `utils/logging.py` → `log_system_event()` |
+
+> **Important:** The **Logs & Analytics** tab in Supabase Studio shows infrastructure
+> logs (PostgREST, Edge Functions, Auth). Your custom tables are in **Table Editor** only.
+
+### View your logs
+
+```sql
+-- Recent goal mutations
+SELECT * FROM user_activity_logs ORDER BY logged_at DESC LIMIT 50;
+
+-- SMILE phase transition history for a specific goal
+SELECT * FROM goal_phase_transitions WHERE goal_id = '<uuid>' ORDER BY transitioned_at ASC;
+
+-- All transitions
+SELECT * FROM goal_phase_transitions ORDER BY transitioned_at DESC LIMIT 50;
+
+-- System events
+SELECT * FROM system_logs WHERE level = 'error' ORDER BY logged_at DESC;
 ```
 
+### Migrations — apply in order
+supabase/migrations/
+├── 20260604000000_create_goals.sql              Goals table (6-phase CHECKs)
+├── 20260605000000_create_goal_phase_transitions.sql  Transitions table (6-phase CHECKs)
+└── 20260607000000_create_log_tables.sql         user_activity_logs + system_logs
+
+Run: `supabase db push`
+
+---
+
+## Dual-Sync Logging Pattern
+
+Every log function writes to two destinations simultaneously:
+API call
+│
+├── log_user_activity()   → user_activity_logs[]  (memory)
+│                         → user_activity_logs    (Supabase)
+│
+├── log_transition()      → phase_transition_logs[] (memory)   ← phase change only
+│                         → goal_phase_transitions  (Supabase)
+│
+└── log_system_event()    → system_logs[]          (memory)
+→ system_logs             (Supabase)
+
+Memory lists are cleared between tests by `conftest.py` autouse fixture.  
+If Supabase fails, the error is caught, printed to stdout, and the request continues normally.
+
+---
+
+## PR History
+
+| PR | Title | Status | Owner |
+|---|---|---|---|
+| #17 | SMILE methodology migration — 5-phase → 6-phase correction | ✅ Merged | Team |
+| #18 | Supabase persistence + dual-sync logging — Phase 2 | PR up for staging | Adil Islam |
+
+### PR #17 — SMILE Migration (merged)
+- Corrected `SmilePhase` enum from hallucinated 5-phase to correct 6-phase framework
+- Updated `smile.py`, `scoring.py`, all test files, QA matrix, proxy data plan
+- 11 files changed · test count 46 → 48 · max score 6.70 → 7.00
+
+### PR #18 — Supabase Persistence + Dual-Sync Logging (merged)
+- `store.py` — Supabase-backed CRUD replacing in-memory dict
+- `utils/logging.py` — 3 dual-sync log types (transition, user activity, system)
+- `routers/goals.py` — activity logging wired on create, update, delete
+- `migrations/20260604` + `20260605` — corrected 6-phase CHECK constraints
+- `migrations/20260607` — new `user_activity_logs` + `system_logs` tables
+- `README.md` — schema docs, PR history, logging architecture diagram
+
+---
+
+## Testing
+
+```bash
+# Full suite
+pytest tests/ -v --tb=short
+
+# Individual modules
+pytest tests/test_goal_crud.py -v     # CRUD + logging integration
+pytest tests/test_smile.py -v         # SMILE phase logic (6-phase)
+pytest tests/test_scoring.py -v       # composite score assertions (48 tests)
+pytest tests/test_smoke.py -v         # fast boot + invariant checks
+```
+
+
+---
+
 ## Team
-| Name | Role | Tests to pass |
-|------|------|---------------|
-| **Jaivardhan** | Lead, recommendations | `test_recommendations.py` |
-| Aditi | Data ingestion | Signal ingestion, proxy data |
-| Adil | API endpoints | `test_goal_crud.py`, `test_activity_signals.py` |
+
+| Name | Role | Owns |
+|---|---|---|
+| **Jaivardhan** | Lead, scoring / auth / DB | `test_recommendations.py`, scoring domain |
+| Adil | API endpoints, Supabase logging | `goals.py`, `store.py`, `utils/logging.py` |
+| Daksh | QA | `docs/qa/goal_endpoints_qa_matrix.md` |
+| Aditi | Seed / proxy data | `docs/aditi-proxy-data-plan.md` |
 | Jahanvi | Frontend | UI components |
-| Yashika | Testing + SMILE | `test_smile.py`, coverage |
-| Ankit | LLM integration | Explanation generation |
+| Yashika | Logging spec / design | `utils/logging.py` spec, `test_smile.py` |
+| Aryan | Support | — |
+
+**Supervisors:** Danial, Nicolas — Roll-up: Christalyn

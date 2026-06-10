@@ -58,9 +58,12 @@ Thumbs.db
 
 # Secrets
 .env
-.secrets.baseline
 *.pem
 *.key
 
 # Logs
 *.log
+
+# Supabase CLI internal
+supabase/.branches/
+supabase/.temp/
