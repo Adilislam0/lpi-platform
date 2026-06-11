@@ -115,13 +115,14 @@ class DeleteResponse(BaseModel):
 class SignalCreate(BaseModel):
     stream: str
     event_type: str
+    timestamp: datetime
     payload: dict = {}
 
 
 class Signal(SignalCreate):
     id: str
     user_id: str
-    timestamp: datetime
+    
 
 
 # ── Recommendation model (unchanged) ─────────────────────────────────────────

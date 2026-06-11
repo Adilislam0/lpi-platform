@@ -99,5 +99,6 @@ def sample_signal() -> dict:
     return {
         "stream": "boardy",
         "event_type": "match_created",
+        "timestamp": "2026-06-11T10:00:00Z",
         "payload": {"person_a": "Alice", "person_b": "Bob", "score": 0.85},
     }

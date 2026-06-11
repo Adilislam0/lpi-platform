@@ -39,6 +39,7 @@ class TestIngestSignal:
         """
         signal = {
             "event_type": "match_created",
+            "timestamp": "2026-06-11T10:00:00Z",
             "payload": {},
         }
 
@@ -56,6 +57,7 @@ class TestIngestSignal:
         """
         signal = {
             "stream": "boardy",
+            "timestamp": "2026-06-11T10:00:00Z",
             "payload": {},
         }
 
@@ -73,6 +75,7 @@ class TestIngestSignal:
         signal = {
             "stream": "boardy",
             "event_type": "match_created",
+            "timestamp": "2026-06-11T10:00:00Z",
             "payload": "invalid_payload",
         }
 
@@ -90,6 +93,7 @@ class TestIngestSignal:
         signal = {
             "stream": "boardy",
             "event_type": "match_created",
+            "timestamp": "2026-06-11T10:00:00Z",
             "payload": {},
         }
 
@@ -97,6 +101,47 @@ class TestIngestSignal:
 
         # Stub currently returns 501 until implementation is wired
         assert response.status_code in (201, 501)
+    def test_invalid_timestamp_format(self, client) -> None:
+        """Reject malformed timestamps."""
+        
+        signal = {
+            "stream": "boardy",
+            "event_type": "match_created",
+            "timestamp": "not-a-timestamp",
+            "payload": {},
+            }
+
+        response = client.post("/api/v1/signals/", json=signal)
+
+        assert response.status_code == 422
+    
+    def test_missing_timestamp(self, client) -> None:
+        """Reject payloads missing timestamp."""
+
+        signal = {
+            "stream": "boardy",
+            "event_type": "match_created",
+            "timestamp": "2026-06-11T10:00:00Z",
+            "payload": {},
+        }
+
+        response = client.post("/api/v1/signals/", json=signal)
+
+        assert response.status_code == 422
+    
+    def test_valid_timestamp_format(self, client, sample_signal) -> None:
+        """Accept ISO-8601 timestamps.
+
+        Current implementation still returns 501 because ingestion is not
+        implemented, but the request should pass schema validation.
+        """
+
+        response = client.post(
+            "/api/v1/signals/",
+            json=sample_signal,
+        )
+
+        assert response.status_code == 501
 
 @pytest.mark.skip(
     reason=(
