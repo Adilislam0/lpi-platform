@@ -1,0 +1,15 @@
+# Local Supabase CLI config — only overrides are listed; everything else
+# uses the CLI's built-in defaults (ports, studio, storage, etc.)
+project_id = "lpi-platform"
+
+[auth]
+enabled = true
+# Where confirmation/magic links redirect back to after verification.
+site_url = "http://localhost:5173"
+
+[auth.email]
+enable_signup = true
+# Require email confirmation locally too, matching production behavior.
+# Confirmation emails are caught by the local Mailpit inbox (no real SMTP
+# needed) — view them at http://127.0.0.1:54324
+enable_confirmations = true

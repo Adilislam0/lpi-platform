@@ -38,9 +38,10 @@ TASK C CHANGE — What changed and WHY
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from lpi import store
+from lpi.middleware.auth import get_current_user
 from lpi.models import DeleteResponse, Goal, GoalCreate, GoalUpdate, SmilePhase
 
 # TASK C: import the SMILE-aware sort function
@@ -52,7 +53,7 @@ router = APIRouter()
 
 
 @router.post("/", response_model=Goal, status_code=status.HTTP_201_CREATED)
-def create_goal(goal: GoalCreate) -> Goal:
+def create_goal(goal: GoalCreate, user_id: str = Depends(get_current_user)) -> Goal:
     """Create a new goal and store it.
 
     urgency_flag is handled automatically:
@@ -67,7 +68,7 @@ def create_goal(goal: GoalCreate) -> Goal:
     now = datetime.now(UTC)
     new_goal = Goal(
         id=str(uuid.uuid4()),
-        user_id="default_user",     # Phase 3: use get_current_user(request)
+        user_id=user_id,
         created_at=now,
         updated_at=now,
         **goal.model_dump(),        # includes urgency_flag automatically
@@ -92,18 +93,16 @@ def create_goal(goal: GoalCreate) -> Goal:
 
 @router.get("/", response_model=list[Goal])
 def list_goals(
-    user_id: str | None = None,
     smile_phase: SmilePhase | None = None,
+    user_id: str = Depends(get_current_user),
 ) -> list[Goal]:
-    """Return goals sorted by SMILE-weighted composite score.
+    """Return the caller's goals, sorted by SMILE-weighted composite score.
 
     TASK C: replaced the raw priority sort with sort_goals_by_score().
     This makes urgency_flag and SMILE phase affect the returned order.
 
-    Filter parameters are AND-combined:
-      ?user_id=default_user                    → only that user's goals
-      ?smile_phase=reality-emulation           → only goals in REALITY_EMULATION phase
-      ?user_id=X&smile_phase=reality-emulation → both filters applied
+    Results are always scoped to the authenticated user. Optional filter:
+      ?smile_phase=reality-emulation → only goals in REALITY_EMULATION phase
     """
     goals = store.list_goals(user_id=user_id, smile_phase=smile_phase)
 
@@ -115,10 +114,10 @@ def list_goals(
 
 
 @router.get("/{goal_id}", response_model=Goal)
-def get_goal(goal_id: str) -> Goal:
-    """Fetch a single goal by UUID. 404 if not found."""
+def get_goal(goal_id: str, user_id: str = Depends(get_current_user)) -> Goal:
+    """Fetch a single goal by UUID. 404 if not found or not owned by the caller."""
     goal = store.get_goal(goal_id)
-    if goal is None:
+    if goal is None or goal.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Goal {goal_id} not found",
@@ -127,7 +126,9 @@ def get_goal(goal_id: str) -> Goal:
 
 
 @router.patch("/{goal_id}", response_model=Goal)
-def update_goal(goal_id: str, update: GoalUpdate) -> Goal:
+def update_goal(
+    goal_id: str, update: GoalUpdate, user_id: str = Depends(get_current_user)
+) -> Goal:
     """Partially update a goal. All fields optional.
 
     urgency_flag is handled automatically by Pydantic:
@@ -144,7 +145,7 @@ def update_goal(goal_id: str, update: GoalUpdate) -> Goal:
     actually sent, so missing fields never accidentally reset to defaults.
     """
     goal = store.get_goal(goal_id)
-    if goal is None:
+    if goal is None or goal.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Goal {goal_id} not found",
@@ -189,13 +190,13 @@ def update_goal(goal_id: str, update: GoalUpdate) -> Goal:
 
 
 @router.delete("/{goal_id}", response_model=DeleteResponse)
-def delete_goal(goal_id: str) -> DeleteResponse:
+def delete_goal(goal_id: str, user_id: str = Depends(get_current_user)) -> DeleteResponse:
     """Remove a goal. Returns {"deleted": true, "id": "..."}.
 
     Field is `id` (not `goal_id`) — matches the OpenAPI contract.
     """
     goal = store.get_goal(goal_id)
-    if goal is None:
+    if goal is None or goal.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Goal {goal_id} not found",
