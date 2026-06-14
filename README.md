@@ -16,6 +16,14 @@ make run                        # FastAPI on http://localhost:8000
 # Swagger UI → http://localhost:8000/docs
 ```
 
+After `supabase start`, copy the printed values into `.env`:
+- `SUPABASE_KEY` ← **service_role key** (the backend bypasses RLS by design)
+- `SUPABASE_JWT_SECRET` ← **JWT secret**
+
+### Frontend
+
+Yet to be implemented by Jahanvi
+
 ---
 
 ## Architecture
@@ -38,6 +46,23 @@ src/lpi/
 │   └── recommendations.py  Recommendation engine stub
 └── utils/
 └── logging.py          Dual-sync logging — in-memory (tests) + Supabase (production)
+
+---
+
+## Authentication
+
+Email/password only (Supabase Auth — no OAuth providers).
+
+- The frontend (`frontend/`) signs users up / in via `supabase-js`
+  (`supabase.auth.signUp` / `signInWithPassword`).
+- Every request to `/api/v1/goals/*` must include
+  `Authorization: Bearer <supabase-access-token>`.
+- `middleware/auth.py::get_current_user` verifies the JWT against
+  `SUPABASE_JWT_SECRET` and returns the user's Supabase UUID — this becomes
+  `Goal.user_id` on create, and every read/update/delete is scoped to it
+  (cross-user access returns `404`).
+- `supabase/migrations/20260612000000_goals_rls.sql` enables Postgres RLS on
+  `goals` as defense-in-depth for any direct (non-backend) access.
 
 ---
 
