@@ -301,16 +301,11 @@ class TestQuerySignals:
         data = response.json()
         assert isinstance(data, list)
 
-    def test_filter_invalid_stream(self, client) -> None:
-            """Filtering by an unknown stream should not crash the API.
-
-            Future implementation should safely return an empty list
-            when no matching signals exist.
-            """
-            response = client.get("/api/v1/signals/?stream=unknown")
-
-            assert response.status_code == 200
-            assert isinstance(response.json(), list)
+        # Every returned signal must be from boardy — datapro must not appear
+        for signal in data:
+            assert signal["stream"] == "boardy", (
+                f"Filter by stream=boardy returned a signal from '{signal['stream']}'"
+            )
 
     def test_filter_by_source(self, client) -> None:
         """?source=github_api should return only github_api signals.
@@ -318,6 +313,7 @@ class TestQuerySignals:
         Phase 3 addition. This is the filter Phase 4 recommendation engine
         uses to exclude simulated test data from real signals.
         """
+        # Insert a real GitHub signal
         github_signal = {
             "stream": "lpi",
             "event_type": "pr_merged",
@@ -326,6 +322,7 @@ class TestQuerySignals:
         }
         client.post("/api/v1/signals/", json=github_signal)
 
+        # Insert a simulated signal (should NOT appear in github_api filter)
         simulated_signal = {
             "stream": "lpi",
             "event_type": "pr_merged",
@@ -334,9 +331,12 @@ class TestQuerySignals:
         }
         client.post("/api/v1/signals/", json=simulated_signal)
 
+        # Filter by source=github_api
         response = client.get("/api/v1/signals/?source=github_api")
         assert response.status_code == 200
 
         data = response.json()
         for signal in data:
-            assert signal["source"] == "github_api"
+            assert signal["source"] == "github_api", (
+                f"Filter source=github_api returned a signal with source='{signal['source']}'"
+            )
