@@ -137,6 +137,7 @@ def ingest_signal(
         # Log to stdout — visible in uvicorn logs. Never breaks the endpoint.
         print(f"[ingest_signal] WARNING: logging failed for signal {new_signal.id}: {exc}")
 
+    print(new_signal.model_dump())
     return new_signal
 
 

@@ -152,7 +152,6 @@ class SignalCreate(BaseModel):
 
     stream: str
     event_type: str
-    timestamp: datetime
     payload: dict = {}
     # `source` is optional here (defaults to 'api') so that:
     # 1. Existing test fixtures (sample_signal in conftest.py) need no changes.
@@ -175,6 +174,7 @@ class Signal(SignalCreate):
 
     id: str
     user_id: str
+    timestamp: datetime
     
 
 

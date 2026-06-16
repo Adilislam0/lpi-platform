@@ -85,6 +85,23 @@ class TestIngestSignal:
         data = response.json()
         assert data["source"] == "github_api"  # must be preserved, not overwritten
 
+    def test_ingest_requires_auth(
+    self,
+    unauthenticated_client,
+) -> None:
+        signal = {
+            "stream": "boardy",
+            "event_type": "match_created",
+            "payload": {},
+        }
+
+        response = unauthenticated_client.post(
+            "/api/v1/signals/",
+            json=signal,
+        )
+
+        assert response.status_code == 401
+
     def test_ingest_from_different_streams(self, client) -> None:
         """Should accept signals from any stream — no allowlist enforced.
 
@@ -177,47 +194,64 @@ class TestIngestSignal:
 
         # Stub currently returns 501 until implementation is wired
         assert response.status_code in (201, 501)
-    def test_invalid_timestamp_format(self, client) -> None:
-        """Reject malformed timestamps."""
-        
+    def test_extra_timestamp_field_is_ignored(self, client) -> None:
+        """Client-supplied timestamp should be ignored.
+
+        The server generates its own timestamp during ingestion.
+        """
+
         signal = {
             "stream": "boardy",
             "event_type": "match_created",
             "timestamp": "not-a-timestamp",
             "payload": {},
-            }
+        }
 
         response = client.post("/api/v1/signals/", json=signal)
 
-        assert response.status_code == 422
+        assert response.status_code in (200, 201)
+
+        data = response.json()
+
+        # Server-generated timestamp should still exist
+        assert "timestamp" in data
     
-    def test_missing_timestamp(self, client) -> None:
-        """Reject payloads missing timestamp."""
+    def test_timestamp_not_required(self, client) -> None:
+        """Timestamp should not be required in requests.
+
+        The server assigns the ingestion timestamp automatically.
+        """
 
         signal = {
             "stream": "boardy",
             "event_type": "match_created",
-            "timestamp": "2026-06-11T10:00:00Z",
             "payload": {},
         }
 
         response = client.post("/api/v1/signals/", json=signal)
 
-        assert response.status_code == 422
-    
-    def test_valid_timestamp_format(self, client, sample_signal) -> None:
-        """Accept ISO-8601 timestamps.
+        assert response.status_code in (200, 201)
 
-        Current implementation still returns 501 because ingestion is not
-        implemented, but the request should pass schema validation.
-        """
+        data = response.json()
+
+        assert "timestamp" in data
+    
+    def test_valid_signal_ingestion(self, client, sample_signal) -> None:
+        """A valid signal should be accepted and persisted."""
 
         response = client.post(
             "/api/v1/signals/",
             json=sample_signal,
         )
 
-        assert response.status_code == 501
+        assert response.status_code == 201
+
+        data = response.json()
+
+        assert data["stream"] == sample_signal["stream"]
+        assert data["event_type"] == sample_signal["event_type"]
+        assert "id" in data
+        assert "timestamp" in data
 
 class TestQuerySignals:
     """Tests for GET /api/v1/signals/
@@ -259,6 +293,35 @@ class TestQuerySignals:
         # This verifies the user_id scope in the list_signals() store query.
         for signal in data:
             assert signal["user_id"] == "00000000-0000-0000-0000-000000000001"
+
+    def test_get_signal_by_id(
+    self,
+    client,
+    sample_signal,
+) -> None:
+        create_response = client.post(
+            "/api/v1/signals/",
+            json=sample_signal,
+        )
+
+        signal_id = create_response.json()["id"]
+
+        response = client.get(
+            f"/api/v1/signals/{signal_id}"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["id"] == signal_id
+    
+    def test_get_nonexistent_signal_returns_404(
+    self,
+    client,
+) -> None:
+        response = client.get(
+            "/api/v1/signals/00000000-0000-0000-0000-000000000000"
+        )
+
+        assert response.status_code == 404
 
     def test_filter_by_stream(self, client) -> None:
         """?stream=boardy should return only boardy signals.
@@ -340,3 +403,25 @@ class TestQuerySignals:
             assert signal["source"] == "github_api", (
                 f"Filter source=github_api returned a signal with source='{signal['source']}'"
             )
+
+    def test_limit_parameter(
+    self,
+    client,
+) -> None:
+        for i in range(5):
+            client.post(
+                "/api/v1/signals/",
+                json={
+                    "stream": "boardy",
+                    "event_type": f"event_{i}",
+                    "payload": {},
+                },
+            )
+        
+
+        response = client.get(
+            "/api/v1/signals/?limit=2"
+        )
+
+        assert response.status_code == 200
+        assert len(response.json()) == 2
