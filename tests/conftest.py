@@ -13,7 +13,7 @@ SUPABASE IN TESTS
 ─────────────────
 Tests run against a LOCAL Supabase instance. Ensure your .env file has:
     SUPABASE_URL=http://127.0.0.1:54321
-    SUPABASE_KEY=<local anon key from `supabase status`>
+    SUPABASE_KEY=<local service_role key from `supabase status`>
 
 If Supabase is unavailable, tests that require a live DB connection will
 be skipped automatically (pytest.skip) rather than failing with a
@@ -23,14 +23,32 @@ Tests that do NOT touch the store (e.g. test_scoring.py) are unaffected
 by Supabase availability — they always run.
 """
 
+import time
+import uuid
 from collections.abc import Generator
 
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 
 from lpi import store
+from lpi.config import settings
 from lpi.main import app
 from lpi.utils.logging import clear_all_logs
+
+# Fixed test secret + user id so every test gets a valid Supabase-style JWT
+# without needing a live Supabase Auth server.
+TEST_JWT_SECRET = "test-secret-for-lpi-platform-tests-only-32-chars"
+TEST_USER_ID = str(uuid.UUID("00000000-0000-0000-0000-000000000001"))
+
+
+def _make_token(user_id: str = TEST_USER_ID) -> str:
+    payload = {
+        "sub": user_id,
+        "aud": "authenticated",
+        "exp": int(time.time()) + 3600,
+    }
+    return jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
 
 
 def _supabase_available() -> bool:
@@ -45,6 +63,12 @@ def _supabase_available() -> bool:
         return True
     except Exception:
         return False
+
+
+@pytest.fixture(autouse=True)
+def _jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure get_current_user can verify the test JWT regardless of .env."""
+    monkeypatch.setattr(settings, "supabase_jwt_secret", TEST_JWT_SECRET)
 
 
 @pytest.fixture(autouse=True)
@@ -74,8 +98,14 @@ def clear_store() -> Generator[None, None, None]:
 
 @pytest.fixture
 def client() -> TestClient:
-    """FastAPI test client — shared across all test modules."""
-    return TestClient(app)
+    """FastAPI test client — shared across all test modules.
+
+    Pre-authenticated with a valid Supabase-style JWT (TEST_USER_ID) so
+    authenticated routes work without a live Supabase Auth server.
+    """
+    test_client = TestClient(app)
+    test_client.headers.update({"Authorization": f"Bearer {_make_token()}"})
+    return test_client
 
 
 @pytest.fixture
