@@ -1,50 +1,217 @@
 """Tests for Activity Signals — Phase 3 gate criteria.
 
-Adil owns making these pass.
+Owner : Adil Islam
+QA    : Daksh Garg / Jaivardhan Singh
+
+PHASE 3 GATE: All tests in this file must pass before the signals
+              endpoints are considered production-ready.
+
+HOW THESE TESTS WORK
+─────────────────────
+These are integration tests — they hit real FastAPI endpoints AND
+write/read from the local Supabase instance.
+
+The autouse `clear_store` fixture in conftest.py runs before and after
+every test, wiping activity_signals and goals tables so tests don't
+interfere with each other.
+
+Requires:
+  - `supabase start` running locally
+  - .env with SUPABASE_URL=http://127.0.0.1:54321
+  - `supabase db push` applied (includes 20260611000000_create_activity_signals.sql)
+
+Run with:
+  pytest tests/test_activity_signals.py -v
 """
 
-import pytest
 
-
-@pytest.mark.skip(
-    reason=(
-        "Phase 3 task: Activity Signals skipped for now"
-    ),
-)
 class TestIngestSignal:
+    """Tests for POST /api/v1/signals/
+
+    Wave 2 implementation. Every test:
+      1. POSTs a signal payload to the endpoint.
+      2. Checks the response status code.
+      3. Checks the returned Signal object has the right fields.
+    """
+
     def test_ingest_returns_signal(self, client, sample_signal) -> None:
-        """POST /api/v1/signals/ should store and return the signal."""
+        """POST /api/v1/signals/ should store and return the full Signal object.
+
+        sample_signal fixture (from conftest.py):
+          {"stream": "boardy", "event_type": "match_created", "payload": {...}}
+
+        We verify:
+          - Status is 201 Created (or 200 — both accepted for compatibility)
+          - Returned JSON has the `stream` we sent
+          - Server assigned an `id` (UUID string)
+          - Server assigned a `timestamp`
+          - `source` defaults to 'api' since sample_signal doesn't send it
+        """
         response = client.post("/api/v1/signals/", json=sample_signal)
+
         assert response.status_code in (200, 201)
         data = response.json()
+
+        # These fields come from the request body
         assert data["stream"] == "boardy"
+        assert data["event_type"] == "match_created"
+
+        # These fields are server-assigned — just verify they exist
         assert "id" in data
+        assert "timestamp" in data
+        assert "user_id" in data
+
+        # source should default to 'api' since sample_signal doesn't include it
+        assert data["source"] == "api"
+
+    def test_ingest_with_explicit_source(self, client) -> None:
+        """When source is explicitly sent, it should be stored and returned.
+
+        This verifies the Phase 3 `source` field works end-to-end:
+          - The model accepts it
+          - The router passes it through
+          - Supabase stores it
+          - The response includes it
+        """
+        signal = {
+            "stream": "lpi",
+            "event_type": "pr_merged",
+            "payload": {"repo": "lpi-platform", "pr_number": 18},
+            "source": "github_api",  # explicitly set
+        }
+        response = client.post("/api/v1/signals/", json=signal)
+
+        assert response.status_code in (200, 201)
+        data = response.json()
+        assert data["source"] == "github_api"  # must be preserved, not overwritten
 
     def test_ingest_from_different_streams(self, client) -> None:
-        """Should accept signals from any stream."""
+        """Should accept signals from any stream — no allowlist enforced.
+
+        The DB has no CHECK constraint on stream, intentionally.
+        New streams (real integrations) can onboard without schema changes.
+        """
         streams = ["boardy", "datapro", "vsab", "altiostar", "security"]
         for stream in streams:
-            signal = {"stream": stream, "event_type": "test", "payload": {}}
+            signal = {
+                "stream": stream,
+                "event_type": "test_event",
+                "payload": {},
+            }
             response = client.post("/api/v1/signals/", json=signal)
-            assert response.status_code in (200, 201)
+            assert response.status_code in (200, 201), (
+                f"Expected 200/201 for stream '{stream}', "
+                f"got {response.status_code}: {response.text}"
+            )
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase 3 task: Activity Signals skipped for now"
-    ),
-)
 class TestQuerySignals:
-    def test_list_signals(self, client) -> None:
-        """GET /api/v1/signals/ should return a list."""
+    """Tests for GET /api/v1/signals/
+
+    Wave 3 implementation. Tests verify:
+      - Basic list works
+      - Server-side stream filter works correctly
+      - Source filter works (Phase 3 addition)
+    """
+
+    def test_list_signals_empty(self, client) -> None:
+        """GET /api/v1/signals/ on a clean store returns an empty list.
+
+        clear_store fixture wipes the table before this test runs,
+        so the response must be [] not whatever previous tests left.
+        """
         response = client.get("/api/v1/signals/")
         assert response.status_code == 200
-        assert isinstance(response.json(), list)
+        assert response.json() == []  # must be empty, not just a list
+
+    def test_list_signals(self, client, sample_signal) -> None:
+        """After inserting one signal, GET /api/v1/signals/ returns only the test user's signals.
+
+        The TestClient uses TEST_USER_ID from conftest.py in the JWT.
+        This verifies that list_signals() is scoped by user_id and does not
+        leak another user's signals.
+        """
+        # Insert a signal for the authenticated test user
+        client.post("/api/v1/signals/", json=sample_signal)
+
+        response = client.get("/api/v1/signals/")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1  # at least the one we just inserted
+
+        # All returned signals must belong to the authenticated test user.
+        # This verifies the user_id scope in the list_signals() store query.
+        for signal in data:
+            assert signal["user_id"] == "00000000-0000-0000-0000-000000000001"
 
     def test_filter_by_stream(self, client) -> None:
-        """Should filter signals by stream name."""
+        """?stream=boardy should return only boardy signals.
+
+        This is the core test for server-side filtering.
+        We insert signals from two different streams, then filter
+        by one and verify only that stream's signals come back.
+        """
+        # Insert a boardy signal
+        boardy_signal = {
+            "stream": "boardy",
+            "event_type": "match_created",
+            "payload": {},
+        }
+        client.post("/api/v1/signals/", json=boardy_signal)
+
+        # Insert a datapro signal (should NOT appear in boardy filter)
+        datapro_signal = {
+            "stream": "datapro",
+            "event_type": "deal_closed",
+            "payload": {},
+        }
+        client.post("/api/v1/signals/", json=datapro_signal)
+
+        # Filter by boardy only
         response = client.get("/api/v1/signals/?stream=boardy")
         assert response.status_code == 200
 
+        data = response.json()
+        assert isinstance(data, list)
 
+        # Every returned signal must be from boardy — datapro must not appear
+        for signal in data:
+            assert signal["stream"] == "boardy", (
+                f"Filter by stream=boardy returned a signal from '{signal['stream']}'"
+            )
 
+    def test_filter_by_source(self, client) -> None:
+        """?source=github_api should return only github_api signals.
+
+        Phase 3 addition. This is the filter Phase 4 recommendation engine
+        uses to exclude simulated test data from real signals.
+        """
+        # Insert a real GitHub signal
+        github_signal = {
+            "stream": "lpi",
+            "event_type": "pr_merged",
+            "payload": {},
+            "source": "github_api",
+        }
+        client.post("/api/v1/signals/", json=github_signal)
+
+        # Insert a simulated signal (should NOT appear in github_api filter)
+        simulated_signal = {
+            "stream": "lpi",
+            "event_type": "pr_merged",
+            "payload": {},
+            "source": "simulated",
+        }
+        client.post("/api/v1/signals/", json=simulated_signal)
+
+        # Filter by source=github_api
+        response = client.get("/api/v1/signals/?source=github_api")
+        assert response.status_code == 200
+
+        data = response.json()
+        for signal in data:
+            assert signal["source"] == "github_api", (
+                f"Filter source=github_api returned a signal with source='{signal['source']}'"
+            )
