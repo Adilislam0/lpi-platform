@@ -24,6 +24,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from lpi.middleware.auth import get_current_user  # re-exported for convenience
+from lpi.middleware.rate_limit import RateLimitMiddleware
 
 __all__ = ["get_current_user", "register_middleware"]
 
@@ -75,9 +76,16 @@ class TimingMiddleware(BaseHTTPMiddleware):
 
 
 def register_middleware(app: FastAPI) -> None:
-    """Attach all middleware to the app. Call once in main.py before routers."""
-    app.add_middleware(TimingMiddleware)  # inner: measures route time only
-    app.add_middleware(  # outer: handles CORS pre-flight
+    """Attach all middleware to the app. Call once in main.py before routers.
+
+    Stack (innermost → outermost):
+      TimingMiddleware    — measures actual route processing time
+      RateLimitMiddleware — enforces per-IP request limits (429 on breach)
+      CORSMiddleware      — handles CORS pre-flight (outermost, runs first)
+    """
+    app.add_middleware(TimingMiddleware)    # inner: measures route time only
+    app.add_middleware(RateLimitMiddleware) # middle: rate-limits before routing
+    app.add_middleware(                     # outer: handles CORS pre-flight
         CORSMiddleware,
         allow_origins=["*"],  # Phase 3: restrict to frontend URL
         allow_credentials=True,
