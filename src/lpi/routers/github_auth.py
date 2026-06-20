@@ -26,7 +26,7 @@ class FetchRepoRequest(BaseModel):
 class TrackRepoRequest(BaseModel):
     user_id: str
     repo_owner: str
-    repo_name: str
+    repo_name: str 
 
 # --- Mock Database ---
 # In production, this saves to your database table: user_id -> github_access_token

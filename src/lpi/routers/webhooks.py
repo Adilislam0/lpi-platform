@@ -65,4 +65,4 @@ async def github_webhook_receiver(request: Request):
         # store.insert_signal(full_db_record)
         print(f"✅ AUTOMATIC DETECTION: Saved {signal_data['event_type']}!")
 
-    return {"status": "success"}
+    return {"status": "success"} 

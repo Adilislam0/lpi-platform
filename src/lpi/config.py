@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     llm_provider: str = "anthropic"
     llm_model: str = "claude-sonnet-4-20250514"
     daily_cost_cap_usd: float = 10.0
+    github_client_id: str = ""
+    github_client_secret: str = ""
 
     @field_validator(
         "supabase_url",

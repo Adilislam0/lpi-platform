@@ -21,7 +21,7 @@ def test_github_webhook_push_event():
     headers = {
         "X-GitHub-Event": "push"
     }
-
+ 
     response = client.post(WEBHOOK_URL, json=mock_github_payload, headers=headers)
     
     # Depending on how your webhooks.py handles responses, it usually returns 200 OK
