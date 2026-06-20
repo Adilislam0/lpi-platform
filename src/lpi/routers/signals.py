@@ -58,6 +58,7 @@ router = APIRouter()
 
 # ── Wave 2: POST /api/v1/signals/ ────────────────────────────────────────────
 
+
 @router.post(
     "/",
     response_model=Signal,
@@ -106,9 +107,9 @@ def ingest_signal(
     # fields (id, user_id, timestamp) on top.
     now = datetime.now(UTC)
     new_signal = Signal(
-        id=str(uuid.uuid4()),   # UUID generated here, not by Postgres
-        user_id=user_id,        # "default_user" in Phase 3
-        timestamp=now,          # always UTC
+        id=str(uuid.uuid4()),  # UUID generated here, not by Postgres
+        user_id=user_id,  # "default_user" in Phase 3
+        timestamp=now,  # always UTC
         **signal.model_dump(),  # stream, event_type, payload, source
     )
 
@@ -137,10 +138,12 @@ def ingest_signal(
         # Log to stdout — visible in uvicorn logs. Never breaks the endpoint.
         print(f"[ingest_signal] WARNING: logging failed for signal {new_signal.id}: {exc}")
 
+    print(new_signal.model_dump())
     return new_signal
 
 
 # ── Wave 3: GET /api/v1/signals/ ─────────────────────────────────────────────
+
 
 @router.get(
     "/",
@@ -169,10 +172,18 @@ def list_signals(
             "exclude simulated signals."
         ),
     ),
+    start: datetime | None = Query(
+        default=None,
+        description="Return signals created at or after this UTC timestamp.",
+    ),
+    end: datetime | None = Query(
+        default=None,
+        description="Return signals created at or before this UTC timestamp.",
+    ),
     limit: int = Query(
         default=50,
-        ge=1,           # minimum 1 row
-        le=200,         # maximum 200 rows — prevents accidentally huge responses
+        ge=1,  # minimum 1 row
+        le=200,  # maximum 200 rows — prevents accidentally huge responses
         description=(
             "Max rows per page (1–200). Use with offset for pagination. "
             "Default 50 is enough for dashboards and the rec engine."
@@ -180,7 +191,7 @@ def list_signals(
     ),
     offset: int = Query(
         default=0,
-        ge=0,           # cannot be negative
+        ge=0,  # cannot be negative
         description=(
             "Number of rows to skip. Page 1 = offset 0. "
             "Page 2 = offset 50 (if limit=50). "
@@ -228,12 +239,15 @@ def list_signals(
         stream=stream,
         event_type=event_type,
         source=source,
+        start=start,
+        end=end,
         limit=limit,
         offset=offset,
     )
 
 
 # ── Bonus: GET /api/v1/signals/{signal_id} ───────────────────────────────────
+
 
 @router.get(
     "/{signal_id}",
