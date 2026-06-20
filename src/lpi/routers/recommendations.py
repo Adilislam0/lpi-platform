@@ -101,11 +101,11 @@ def _analyze_signal_context(signals: list) -> dict:
         }
 
     # Stream distribution
-    stream_counts = {}
+    stream_counts: dict[str, int] = {}
     for signal in signals:
         stream_counts[signal.stream] = stream_counts.get(signal.stream, 0) + 1
 
-    most_active_stream = max(stream_counts, key=stream_counts.get) if stream_counts else None
+    most_active_stream = max(stream_counts, key=stream_counts.get) if stream_counts else None  # type: ignore[arg-type]
     stream_diversity = len(stream_counts)
 
     # Signal velocity (signals in last 24 hours)
