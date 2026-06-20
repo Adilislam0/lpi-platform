@@ -21,13 +21,13 @@ PHASE 4 EXECUTION PLAN:
 - Adil: QA validation
 """
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Query
 
-from lpi.models import Recommendation, SmilePhase
 from lpi import store
+from lpi.models import Recommendation, SmilePhase
 
 router = APIRouter()
 

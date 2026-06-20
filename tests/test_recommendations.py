@@ -73,9 +73,5 @@ class TestRecommendations:
         # Should still return 3 recommendations (fallback guarantee)
         assert len(data) == 3
 
-        # At least one recommendation should reference the created goal
-        has_goal_reference = any(
-            rec.get("source_goals") and len(rec.get("source_goals", [])) > 0
-            for rec in data
-        )
         # When Supabase is connected, the agent orchestration will use real data
+        # and recommendations will include source_goals references
