@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from fastapi import FastAPI
 
 from lpi.middleware import register_middleware
-from lpi.routers import github_auth, goals, recommendations, signals, webhooks
+from lpi.routers import github_auth, goals, me, recommendations, signals, users, webhooks
 
 
 @asynccontextmanager
@@ -50,6 +50,8 @@ app.include_router(
     prefix="/api/v1/recommendations",
     tags=["recommendations"],
 )
+app.include_router(me.router, prefix="/api/v1/me", tags=["me"])
+app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 
 
 @app.get("/health", tags=["health"])

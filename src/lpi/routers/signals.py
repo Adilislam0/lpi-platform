@@ -49,7 +49,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from lpi import store
-from lpi.middleware.auth import get_current_user
+from lpi.middleware.auth import UserContext, get_current_user, get_current_user_context
 from lpi.models import Signal, SignalCreate
 from lpi.utils.logging import log_user_activity
 
@@ -188,7 +188,8 @@ def list_signals(
             "total row count does NOT affect query speed."
         ),
     ),
-    user_id: str = Depends(get_current_user),
+    fetch_all: bool = Query(False, alias="all"),
+    user_context: UserContext = Depends(get_current_user_context),
 ) -> list[Signal]:
     """Return signals filtered by stream, event_type, and/or source.
 
@@ -221,8 +222,9 @@ def list_signals(
       GET /api/v1/signals/?source=github_api&limit=20      → 20 real GitHub events
       GET /api/v1/signals/?stream=boardy&limit=50&offset=50 → boardy page 2
     """
+    target_user_id = None if (fetch_all and user_context.is_admin) else user_context.user_id
     return store.list_signals(
-        user_id=user_id,
+        user_id=target_user_id,
         stream=stream,
         event_type=event_type,
         source=source,
@@ -241,7 +243,7 @@ def list_signals(
 )
 def get_signal(
     signal_id: str,
-    user_id: str = Depends(get_current_user),
+    user_context: UserContext = Depends(get_current_user_context),
 ) -> Signal:
     """Fetch one signal by UUID. 404 if not found or not owned by caller.
 
@@ -249,9 +251,16 @@ def get_signal(
     cannot determine whether another user's signal exists.
     """
     signal = store.get_signal(signal_id)
-    if signal is None or signal.user_id != user_id:
+    if signal is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Signal '{signal_id}' not found.",
         )
+        
+    if not user_context.is_admin and signal.user_id != user_context.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Signal '{signal_id}' not found.",
+        )
+        
     return signal
