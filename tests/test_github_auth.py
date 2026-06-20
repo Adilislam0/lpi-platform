@@ -1,13 +1,10 @@
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 from lpi.main import app
-
-# Import the mock DB so we can inject test tokens
-from lpi.routers.github_auth import token_db 
+from lpi.routers.github_auth import token_db
 
 client = TestClient(app)
 PREFIX = "/api/v1/github"
-
 
 @patch("lpi.routers.github_auth.httpx.AsyncClient.post", new_callable=AsyncMock)
 def test_exchange_github_token_success(mock_post):

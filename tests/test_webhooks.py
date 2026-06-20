@@ -2,8 +2,6 @@ from fastapi.testclient import TestClient
 from lpi.main import app
 
 client = TestClient(app)
-
-# Adjust this prefix if your webhook route is mounted differently in main.py
 WEBHOOK_URL = "/api/v1/webhooks/github"
 
 def test_github_webhook_push_event():
