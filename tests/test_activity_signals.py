@@ -24,6 +24,8 @@ Run with:
   pytest tests/test_activity_signals.py -v
 """
 
+from unittest.mock import patch
+
 
 class TestIngestSignal:
     """Tests for POST /api/v1/signals/
@@ -86,9 +88,9 @@ class TestIngestSignal:
         assert data["source"] == "github_api"  # must be preserved, not overwritten
 
     def test_ingest_requires_auth(
-    self,
-    unauthenticated_client,
-) -> None:
+        self,
+        unauthenticated_client,
+    ) -> None:
         signal = {
             "stream": "boardy",
             "event_type": "match_created",
@@ -139,8 +141,7 @@ class TestIngestSignal:
         response = client.post("/api/v1/signals/", json=signal)
 
         # Accept both for now while implementation is incomplete
-        assert response.status_code in (422, 501)
-
+        assert response.status_code == 422
 
     def test_missing_event_type(self, client) -> None:
         """Signal ingestion should reject payloads missing event_type.
@@ -156,8 +157,7 @@ class TestIngestSignal:
 
         response = client.post("/api/v1/signals/", json=signal)
 
-        assert response.status_code in (422, 501)
-
+        assert response.status_code == 422
 
     def test_invalid_payload_type(self, client) -> None:
         """Signal payload should eventually require a dictionary object.
@@ -174,8 +174,7 @@ class TestIngestSignal:
 
         response = client.post("/api/v1/signals/", json=signal)
 
-        assert response.status_code in (422, 501)
-
+        assert response.status_code == 422
 
     def test_empty_payload(self, client) -> None:
         """Empty payloads should not crash the ingestion endpoint.
@@ -193,7 +192,8 @@ class TestIngestSignal:
         response = client.post("/api/v1/signals/", json=signal)
 
         # Stub currently returns 501 until implementation is wired
-        assert response.status_code in (201, 501)
+        assert response.status_code == 201
+
     def test_extra_timestamp_field_is_ignored(self, client) -> None:
         """Client-supplied timestamp should be ignored.
 
@@ -209,13 +209,14 @@ class TestIngestSignal:
 
         response = client.post("/api/v1/signals/", json=signal)
 
-        assert response.status_code in (200, 201)
+        assert response.status_code == 201
 
         data = response.json()
 
         # Server-generated timestamp should still exist
         assert "timestamp" in data
-    
+        assert data["timestamp"] != signal["timestamp"]
+
     def test_timestamp_not_required(self, client) -> None:
         """Timestamp should not be required in requests.
 
@@ -235,7 +236,7 @@ class TestIngestSignal:
         data = response.json()
 
         assert "timestamp" in data
-    
+
     def test_valid_signal_ingestion(self, client, sample_signal) -> None:
         """A valid signal should be accepted and persisted."""
 
@@ -252,6 +253,51 @@ class TestIngestSignal:
         assert data["event_type"] == sample_signal["event_type"]
         assert "id" in data
         assert "timestamp" in data
+
+    def test_signal_ingestion_logs_activity(
+        self,
+        client,
+        sample_signal,
+    ) -> None:
+        """Signal ingestion should log a user activity event."""
+
+        with patch("lpi.routers.signals.log_user_activity") as mock_log:
+            response = client.post(
+                "/api/v1/signals/",
+                json=sample_signal,
+            )
+
+            assert response.status_code == 201
+
+            mock_log.assert_called_once()
+
+            _, kwargs = mock_log.call_args
+
+            assert kwargs["action"] == "signal_ingested"
+            assert kwargs["user_id"] == "00000000-0000-0000-0000-000000000001"
+
+            assert kwargs["metadata"]["stream"] == sample_signal["stream"]
+            assert kwargs["metadata"]["event_type"] == sample_signal["event_type"]
+            assert kwargs["metadata"]["source"] == "api"
+
+    def test_signal_ingestion_succeeds_when_logging_fails(
+        self,
+        client,
+        sample_signal,
+    ) -> None:
+        """Signal ingestion should still succeed if activity logging fails."""
+
+        with patch(
+            "lpi.routers.signals.log_user_activity",
+            side_effect=Exception("Logging failed"),
+        ):
+            response = client.post(
+                "/api/v1/signals/",
+                json=sample_signal,
+            )
+
+            assert response.status_code == 201
+
 
 class TestQuerySignals:
     """Tests for GET /api/v1/signals/
@@ -295,10 +341,10 @@ class TestQuerySignals:
             assert signal["user_id"] == "00000000-0000-0000-0000-000000000001"
 
     def test_get_signal_by_id(
-    self,
-    client,
-    sample_signal,
-) -> None:
+        self,
+        client,
+        sample_signal,
+    ) -> None:
         create_response = client.post(
             "/api/v1/signals/",
             json=sample_signal,
@@ -306,20 +352,16 @@ class TestQuerySignals:
 
         signal_id = create_response.json()["id"]
 
-        response = client.get(
-            f"/api/v1/signals/{signal_id}"
-        )
+        response = client.get(f"/api/v1/signals/{signal_id}")
 
         assert response.status_code == 200
         assert response.json()["id"] == signal_id
-    
+
     def test_get_nonexistent_signal_returns_404(
-    self,
-    client,
-) -> None:
-        response = client.get(
-            "/api/v1/signals/00000000-0000-0000-0000-000000000000"
-        )
+        self,
+        client,
+    ) -> None:
+        response = client.get("/api/v1/signals/00000000-0000-0000-0000-000000000000")
 
         assert response.status_code == 404
 
@@ -349,7 +391,18 @@ class TestQuerySignals:
         # Filter by boardy only
         response = client.get("/api/v1/signals/?stream=boardy")
         assert response.status_code == 200
-    
+        data = response.json()
+
+        # Should return at least one signal
+        assert len(data) >= 1
+
+        # Every returned signal must belong to the boardy stream
+        for signal in data:
+            assert signal["stream"] == "boardy"
+
+        # Ensure the datapro signal is not included
+        assert all(signal["stream"] != "datapro" for signal in data)
+
     def test_empty_signal_list(self, client) -> None:
         """GET /signals/ should safely return an empty list.
 
@@ -404,10 +457,65 @@ class TestQuerySignals:
                 f"Filter source=github_api returned a signal with source='{signal['source']}'"
             )
 
+    def test_filter_by_event_type(self, client) -> None:
+        """?event_type=pr_merged should return only matching event types."""
+
+        # Insert a PR merged signal
+        pr_signal = {
+            "stream": "lpi",
+            "event_type": "pr_merged",
+            "payload": {},
+        }
+        client.post("/api/v1/signals/", json=pr_signal)
+
+        # Insert a different event type
+        match_signal = {
+            "stream": "boardy",
+            "event_type": "match_created",
+            "payload": {},
+        }
+        client.post("/api/v1/signals/", json=match_signal)
+
+        response = client.get("/api/v1/signals/?event_type=pr_merged")
+
+        assert response.status_code == 200
+
+        data = response.json()
+
+        assert len(data) >= 1
+
+        for signal in data:
+            assert signal["event_type"] == "pr_merged"
+
+        assert all(signal["event_type"] != "match_created" for signal in data)
+
+    def test_filter_by_time_range(self, client) -> None:
+        """Signals should be filtered by timestamp range."""
+
+        client.post(
+            "/api/v1/signals/",
+            json={
+                "stream": "lpi",
+                "event_type": "pr_merged",
+                "payload": {},
+            },
+        )
+
+        response = client.get(
+            "/api/v1/signals/?start=2000-01-01T00:00:00Z&end=2100-01-01T00:00:00Z"
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+
+        assert isinstance(data, list)
+        assert len(data) >= 1
+
     def test_limit_parameter(
-    self,
-    client,
-) -> None:
+        self,
+        client,
+    ) -> None:
         for i in range(5):
             client.post(
                 "/api/v1/signals/",
@@ -417,11 +525,8 @@ class TestQuerySignals:
                     "payload": {},
                 },
             )
-        
 
-        response = client.get(
-            "/api/v1/signals/?limit=2"
-        )
+        response = client.get("/api/v1/signals/?limit=2")
 
         assert response.status_code == 200
         assert len(response.json()) == 2
