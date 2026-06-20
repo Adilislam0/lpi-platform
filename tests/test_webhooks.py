@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+
 from lpi.main import app
 
 client = TestClient(app)

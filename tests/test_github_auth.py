@@ -1,5 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
+
 from fastapi.testclient import TestClient
+
 from lpi.main import app
 from lpi.routers.github_auth import token_db
 
