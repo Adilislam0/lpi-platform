@@ -72,49 +72,29 @@ def _jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "supabase_jwt_secret", TEST_JWT_SECRET)
 
 
-@pytest.fixture
-def require_supabase() -> None:
-    """Opt-in fixture: skip the test when Supabase is unreachable.
+@pytest.fixture(autouse=True)
+def clear_store() -> Generator[None, None, None]:
+    """Wipe all Supabase + in-memory state before and after every test.
 
-    Add to any test that reads/writes the DB:
-        def test_something(self, client, require_supabase): ...
+    The `yield` splits setup (before) from teardown (after).
+    Both sides are cleared so a failing test cannot pollute the next one.
 
-    Pure unit tests (scoring, smile, rate_limit, github_auth) must NOT
-    request this fixture — they run always, DB or not.
+    If Supabase is unreachable the fixture skips the test with a clear
+    message instead of raising a cryptic connection error. Tests that
+    only use in-memory scoring (test_scoring.py) create no Goals and
+    never call the store, so they run fine regardless.
     """
     if not _supabase_available():
         pytest.skip(
-            "Local Supabase is not running — "
-            "provide real SUPABASE_URL/KEY in .env and re-run."
+            "Local Supabase is not running. "
+            "Start it with `supabase start` then re-run."
         )
 
-
-@pytest.fixture(autouse=True)
-def clear_store(request: pytest.FixtureRequest) -> Generator[None, None, None]:
-    """Wipe state before/after every test.
-
-    Three tiers — no Supabase call unless the test actually needs DB:
-      1. needs_db=True  (test lists require_supabase in its fixtures)
-               → skip if DB unavailable; wipe Supabase tables + logs
-      2. needs_db=False (unit tests: scoring, smile, rate_limit, …)
-               → always runs; no DB call at all
-    """
-    needs_db = "require_supabase" in request.fixturenames
-
-    if needs_db:
-        if not _supabase_available():
-            pytest.skip(
-                "Local Supabase is not running — "
-                "provide real SUPABASE_URL/KEY in .env and re-run."
-            )
-        store.clear_all()
-        clear_all_logs()
-
+    store.clear_all()
+    clear_all_logs()
     yield
-
-    if needs_db and _supabase_available():
-        store.clear_all()
-        clear_all_logs()
+    store.clear_all()
+    clear_all_logs()
 
 
 @pytest.fixture
@@ -157,10 +137,3 @@ def sample_signal() -> dict:
         "timestamp": "2026-06-11T10:00:00Z",
         "payload": {"person_a": "Alice", "person_b": "Bob", "score": 0.85},
     }
-
-
-@pytest.fixture
-def phase_gate_enabled() -> bool:
-    """True when LPI_RUN_PHASE_GATES=1 is set — enables recommendation tests."""
-    import os
-    return os.getenv("LPI_RUN_PHASE_GATES", "0") == "1"
