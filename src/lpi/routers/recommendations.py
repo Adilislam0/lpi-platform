@@ -54,10 +54,13 @@ name) directly as the safety-net route if the multi-module reasoning
 hasn't finished in time.
 """
 
-from fastapi import APIRouter, Depends, Query
+from datetime import UTC, datetime
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from lpi.middleware.auth import get_current_user
-from lpi.models import Recommendation
+from lpi import store
+from lpi.models import Recommendation, RecommendationFeedback, RecommendationFeedbackCreate 
 from lpi.recommendation_engine import build_cold_start_recommendations, generate_recommendations
 
 router = APIRouter()
@@ -112,3 +115,30 @@ def get_recommendations(
         key=lambda r: -r.priority,
     )
     return recommendations[:limit]
+
+@router.post(
+    "/{user_id}/feedback",
+    response_model=RecommendationFeedback,
+    summary="Record recommendation feedback",
+)
+def submit_recommendation_feedback(
+    user_id: str,
+    feedback: RecommendationFeedbackCreate,
+    _caller_id: str = Depends(get_current_user),
+) -> RecommendationFeedback:
+    """Store whether the user accepted or dismissed a recommendation."""
+
+    if user_id != _caller_id:
+        raise HTTPException(status_code=403, detail="Cannot submit feedback for another user.")
+
+    record = RecommendationFeedback(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        recommendation_id=feedback.recommendation_id,
+        action=feedback.action,
+        smile_phase=feedback.smile_phase,
+        status=feedback.status,
+        created_at=datetime.now(UTC),
+    )
+
+    return store.insert_recommendation_feedback(record)

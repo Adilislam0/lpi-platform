@@ -54,6 +54,11 @@ class SmilePhase(StrEnum):
     CONTINUOUS_INTELLIGENCE = "continuous-intelligence"  # Phase 5
     PERPETUAL_WISDOM = "perpetual-wisdom"  # Phase 6
 
+class RecommendationFeedbackStatus(StrEnum):
+    """Valid feedback actions for a recommendation."""
+
+    ACCEPTED = "accepted"
+    DISMISSED = "dismissed"
 
 # ── Goal models ───────────────────────────────────────────────────────────────
 
@@ -193,4 +198,23 @@ class Recommendation(BaseModel):
     priority: float
     source_goals: list[str] = []
     source_signals: list[str] = []
+    created_at: datetime
+
+# ── Recommendation Feedback models ────────────────────────────────────────────
+
+
+class RecommendationFeedbackCreate(BaseModel):
+    """Request body for POST /api/v1/recommendations/.../feedback."""
+
+    recommendation_id: str
+    action: str
+    smile_phase: SmilePhase
+    status: RecommendationFeedbackStatus
+
+
+class RecommendationFeedback(RecommendationFeedbackCreate):
+    """Stored recommendation feedback."""
+
+    id: str
+    user_id: str
     created_at: datetime
