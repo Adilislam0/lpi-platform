@@ -56,7 +56,6 @@ from datetime import UTC, datetime
 
 from lpi import langgraph_agent, store
 from lpi.models import Goal, Recommendation, Signal, SmilePhase
-from lpi.routers import recommendations
 from lpi.scoring import score_goal, sort_goals_by_score
 from lpi.smile import PHASE_ORDER, get_phase_description, get_phase_key_question
 

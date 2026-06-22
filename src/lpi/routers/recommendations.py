@@ -53,16 +53,23 @@ lpi.recommendation_engine.build_cold_start_recommendations under its old
 name) directly as the safety-net route if the multi-module reasoning
 hasn't finished in time.
 """
-
-from datetime import UTC, datetime
 import uuid
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from lpi import store
 from lpi.agent_pipeline import run_pipeline
 from lpi.middleware.auth import get_current_user
-from lpi import store
-from lpi.models import Recommendation, RecommendationFeedback, RecommendationFeedbackCreate 
-from lpi.recommendation_engine import build_cold_start_recommendations, generate_recommendations
+from lpi.models import (
+    Recommendation,
+    RecommendationFeedback,
+    RecommendationFeedbackCreate,
+)
+from lpi.recommendation_engine import (
+    build_cold_start_recommendations,
+    generate_recommendations,
+)
 
 router = APIRouter()
 

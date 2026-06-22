@@ -71,10 +71,10 @@ The clear_all() helper wipes both tables between test runs.
 
 import threading
 from datetime import datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from lpi.config import settings
-from lpi.models import Goal, Signal, RecommendationFeedback 
+from lpi.models import Goal, RecommendationFeedback, Signal
 
 if TYPE_CHECKING:
     from supabase import Client  # type: ignore[attr-defined]
@@ -368,7 +368,8 @@ def insert_recommendation_feedback(
 def list_recommendation_feedback(
     user_id: str,
 ) -> list[RecommendationFeedback]:
-    """Return all feedback for one user."""
+    """Return all recommendation feedback for a user."""
+
 
     result = (
         _get_client()
@@ -380,7 +381,7 @@ def list_recommendation_feedback(
 
     return [
         RecommendationFeedback(**row)
-        for row in result.data
+        for row in cast(list[dict], result.data)
     ]
 
 def get_recommendation_feedback(
@@ -399,7 +400,8 @@ def get_recommendation_feedback(
     if not result.data:
         return None
 
-    return RecommendationFeedback(**result.data[0])
+    row = cast(dict[str, Any], result.data[0])
+    return RecommendationFeedback(**row)
 
 # ── Test helper ───────────────────────────────────────────────────────────────
 

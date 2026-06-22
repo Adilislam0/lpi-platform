@@ -12,9 +12,8 @@ State is in-memory and single-process. For multi-worker deployments,
 replace _store with a Redis-backed counter.
 """
 
-import os, time
+import time
 from collections.abc import Awaitable, Callable
-from urllib import request
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
