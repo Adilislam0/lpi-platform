@@ -34,7 +34,9 @@ from fastapi.testclient import TestClient
 from lpi import store
 from lpi.config import settings
 from lpi.main import app
-from lpi.middleware.rate_limit import _store as _rate_limit_store
+from lpi.middleware.rate_limit import (
+    _store as _rate_limit_store,  # Access the in-memory rate-limit store to reset it in tests
+)
 from lpi.utils.logging import clear_all_logs
 
 # Fixed test secret + user id so every test gets a valid Supabase-style JWT
@@ -90,12 +92,11 @@ def clear_store() -> Generator[None, None, None]:
 
     store.clear_all()
     clear_all_logs()
-    _rate_limit_store.clear()
+    _rate_limit_store.clear()  # Reset the in-memory rate-limit counters
     yield
     store.clear_all()
     clear_all_logs()
-    _rate_limit_store.clear()
-
+    _rate_limit_store.clear()  # Reset the in-memory rate-limit counters
 
 @pytest.fixture
 def client() -> TestClient:

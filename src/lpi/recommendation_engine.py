@@ -84,6 +84,13 @@ def generate_recommendations(user_id: str) -> list[Recommendation]:
     """
     goals = store.list_goals(user_id=user_id)
     signals = store.list_signals(user_id=user_id, limit=_SIGNALS_TO_CONSIDER)
+    feedback = store.list_recommendation_feedback(user_id)
+
+    dismissed_ids = {
+        item.recommendation_id
+        for item in feedback
+        if item.status == "dismissed"
+    }
 
     if not goals and not signals:
         # Cold start: nothing to reason about yet (brand-new account, or a
@@ -103,7 +110,15 @@ def generate_recommendations(user_id: str) -> list[Recommendation]:
             r.smile_phase == signal_rec.smile_phase for r in candidates
         ):
             candidates.append(signal_rec)
-        return _diversify_by_phase(candidates)
+        recommendations = _diversify_by_phase(candidates)
+
+        recommendations = [
+            recommendation
+            for recommendation in recommendations
+            if recommendation.id not in dismissed_ids
+        ]
+
+        return recommendations
 
     # ── Fallback: Wave 2 deterministic Phase 1 engine ───────────────────────
     # Reached when the LLM is unavailable, errored, or returned bad JSON.
@@ -114,7 +129,15 @@ def generate_recommendations(user_id: str) -> list[Recommendation]:
     if signal_rec is not None:
         fallback_candidates.append(signal_rec)
 
-    return _diversify_by_phase(fallback_candidates)
+    recommendations = _diversify_by_phase(fallback_candidates)
+
+    recommendations = [
+        recommendation
+        for recommendation in recommendations
+        if recommendation.id not in dismissed_ids
+    ]
+
+    return recommendations
 
 
 # ══════════════════════════════════════════════════════════════════════════════

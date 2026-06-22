@@ -68,3 +68,5 @@ Thumbs.db
 # Supabase CLI internal
 supabase/.branches/
 supabase/.temp/
+
+src/generate_token.py

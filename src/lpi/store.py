@@ -71,10 +71,10 @@ The clear_all() helper wipes both tables between test runs.
 
 import threading
 from datetime import datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from lpi.config import settings
-from lpi.models import Goal, Signal
+from lpi.models import Goal, RecommendationFeedback, Signal
 
 if TYPE_CHECKING:
     from supabase import Client  # type: ignore[attr-defined]
@@ -94,6 +94,7 @@ def _get_client() -> "Client":
     from supabase import create_client  # type: ignore[attr-defined]
 
     key = settings.supabase_service_role_key or settings.supabase_key
+    print("SUPABASE URL:", settings.supabase_url)
     if not key:
         raise RuntimeError(
             "Supabase service role key is required for backend writes. "
@@ -350,6 +351,57 @@ def get_user_activity_logs(
         query = query.eq("action", action)
     return cast(list[dict], query.execute().data)  # ← always reached
 
+# ── Recommendation Feedback ─────────────────────────────────────────────
+def insert_recommendation_feedback(
+    feedback: RecommendationFeedback,
+) -> RecommendationFeedback:
+    """Store a user's accept/dismiss feedback."""
+
+    _get_client().table(
+        "recommendation_feedback"
+    ).insert(
+        feedback.model_dump(mode="json")
+    ).execute()
+
+    return feedback
+
+def list_recommendation_feedback(
+    user_id: str,
+) -> list[RecommendationFeedback]:
+    """Return all recommendation feedback for a user."""
+
+
+    result = (
+        _get_client()
+        .table("recommendation_feedback")
+        .select("*")
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    return [
+        RecommendationFeedback(**row)
+        for row in cast(list[dict], result.data)
+    ]
+
+def get_recommendation_feedback(
+    recommendation_id: str,
+) -> RecommendationFeedback | None:
+    """Return feedback for one recommendation."""
+
+    result = (
+        _get_client()
+        .table("recommendation_feedback")
+        .select("*")
+        .eq("recommendation_id", recommendation_id)
+        .execute()
+    )
+
+    if not result.data:
+        return None
+
+    row = cast(dict[str, Any], result.data[0])
+    return RecommendationFeedback(**row)
 
 # ── Test helper ───────────────────────────────────────────────────────────────
 
