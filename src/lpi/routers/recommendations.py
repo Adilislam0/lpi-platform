@@ -58,6 +58,7 @@ from datetime import UTC, datetime
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from lpi.agent_pipeline import run_pipeline
 from lpi.middleware.auth import get_current_user
 from lpi import store
 from lpi.models import Recommendation, RecommendationFeedback, RecommendationFeedbackCreate 
@@ -142,3 +143,42 @@ def submit_recommendation_feedback(
     )
 
     return store.insert_recommendation_feedback(record)
+
+@router.post(
+    "/{user_id}/run",
+    response_model=list[Recommendation],
+    summary="Run the full agent orchestration pipeline for a user",
+    description=(
+        "Executes the multi-step LangGraph orchestration pipeline: "
+        "fetch → classify → reason (LLM) → validate → enrich → finalise. "
+        "Always returns the **top 3 recommendations** sorted by priority — "
+        "even if the LLM is unavailable, returns bad JSON, or the DB is unreachable. "
+        "The pipeline retries failed LLM output once with a simplified prompt before "
+        "falling back to the deterministic Wave 2 engine, and finally to cold-start "
+        "cards. This is the Phase 4 demo-safe endpoint."
+    ),
+)
+def run_recommendation_pipeline(
+    user_id: str,
+    _caller_id: str = Depends(get_current_user),
+) -> list[Recommendation]:
+    """Run the full multi-step agent orchestration pipeline.
+
+    Always returns exactly the top 3 recommendations for the user,
+    sorted by priority descending. No limit parameter — 3 cards is
+    the fixed contract for this endpoint.
+
+    The pipeline runs through 7 nodes:
+      1. fetch    — loads user's goals + signals from Supabase
+      2. classify — routes to LLM path or cold-start/fallback
+      3. reason   — runs the LangGraph LLM agent (Groq/Anthropic)
+      4. validate — checks LLM output quality; retries once if invalid
+      5. enrich   — converts validated LLM output → Recommendation objects
+                    (falls back to deterministic engine if LLM invalid)
+      6. fallback — guaranteed cold-start 3 cards if route != llm
+      7. finalise — deduplicates, sorts by priority DESC, pads to 3
+
+    DEMO GUARANTEE: always returns exactly 3 Recommendation objects
+    regardless of LLM availability, DB state, or user data.
+    """
+    return run_pipeline(user_id, n_cards=3)
