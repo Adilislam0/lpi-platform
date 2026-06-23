@@ -1,3 +1,12 @@
+const originalFetch = window.fetch;
+window.fetch = async (...args) => {
+  const response = await originalFetch(...args);
+  if (response.status === 429) {
+    throw new Error("Rate limit exceeded (429). Please wait 30 seconds.");
+  }
+  return response;
+};
+
 export const createGoalApi = (baseUrl) => {
   const BASE_URL = (
     baseUrl || import.meta.env.VITE_API_BASE || ""
@@ -117,7 +126,115 @@ export const createGoalApi = (baseUrl) => {
       });
       if (!response.ok) throw new Error("Failed to delete goal on the server");
     },
+
+    async exchangeGithubToken(code, userId) {
+      const response = await fetch(`${BASE_URL}/api/v1/github/exchange-token`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ code, user_id: userId }),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to exchange GitHub authorization code");
+      }
+      return await response.json();
+    },
+
+    async getGithubRepositories(userId) {
+      const response = await fetch(`${BASE_URL}/api/v1/github/user-repositories/${userId}`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to fetch GitHub repositories");
+      }
+      return await response.json();
+    },
+
+    async trackGithubRepository(userId, repoOwner, repoName) {
+      const response = await fetch(`${BASE_URL}/api/v1/github/track-repo`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          user_id: userId,
+          repo_owner: repoOwner,
+          repo_name: repoName,
+        }),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to track GitHub repository");
+      }
+      return await response.json();
+    },
+
+    async disconnectGithubRepository(userId, repoOwner, repoName) {
+      const response = await fetch(`${BASE_URL}/api/v1/github/disconnect-repo`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          user_id: userId,
+          repo_owner: repoOwner,
+          repo_name: repoName,
+        }),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to disconnect GitHub repository");
+      }
+      return await response.json();
+    },
+
+    async disconnectGithubAccount(userId) {
+      const response = await fetch(`${BASE_URL}/api/v1/github/disconnect-account/${userId}`, {
+        method: "POST",
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to disconnect GitHub account");
+      }
+      return await response.json();
+    },
+
+    async getRecommendations(userId) {
+      const response = await fetch(`${BASE_URL}/api/v1/recommendations/${userId}`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to fetch recommendations");
+      }
+      return await response.json();
+    },
+
+    async runRecommendationPipeline(userId) {
+      const response = await fetch(`${BASE_URL}/api/v1/recommendations/${userId}/run`, {
+        method: "POST",
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to run recommendation pipeline");
+      }
+      return await response.json();
+    },
+
+    async submitRecommendationFeedback(userId, feedback) {
+      const response = await fetch(`${BASE_URL}/api/v1/recommendations/${userId}/feedback`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify(feedback),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to submit recommendation feedback");
+      }
+      return await response.json();
+    },
+
   };
+
 };
 
 export const goalApi = createGoalApi();

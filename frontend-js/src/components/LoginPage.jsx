@@ -7,8 +7,10 @@
 import { useState } from "react";
 import { supabase } from "../supabaseClient";
 import "./LoginPage.css";
+import { useToast } from "./Toast";
 
 export const LoginPage = ({ onAuthSuccess }) => {
+  const { showToast } = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
@@ -33,7 +35,7 @@ export const LoginPage = ({ onAuthSuccess }) => {
         if (data.session) {
           onAuthSuccess(data.session);
         } else {
-          alert("Success! Check your inbox (Mailpit) for a verification link.");
+          showToast("Success! Check your inbox (Mailpit) for a verification link.", "success");
           setIsSignUp(false);
         }
       } else {
