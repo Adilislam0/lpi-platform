@@ -7,10 +7,14 @@ import { GoalsList } from "./components/GoalsList";
 import { GoalCreateModal } from "./components/GoalCreateModal";
 import { UserProfile } from "./components/UserProfile";
 import { SignalsView } from "./components/SignalsView";
+import { GithubTracker } from "./components/GithubTracker";
+import { RecommendationsView } from "./components/RecommendationsView";
+import { useToast } from "./components/Toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 function App() {
+  const { showToast } = useToast();
   const pendingIngestsRef = useRef(new Set());
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
@@ -25,6 +29,39 @@ function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("active");
+
+  const [githubExchanging, setGithubExchanging] = useState(false);
+  const [githubError, setGithubError] = useState(null);
+
+  // Catch GitHub OAuth Redirect Callback Code
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    
+    if (code && session?.user?.id) {
+      const handleGithubExchange = async () => {
+        setGithubExchanging(true);
+        setGithubError(null);
+        try {
+          await goalApi.exchangeGithubToken(code, session.user.id);
+          // Clean the query parameters from the URL
+          const newUrl = window.location.origin + window.location.pathname;
+          window.history.replaceState({}, document.title, newUrl);
+          // Switch to github tracker tab
+          setActiveTab("github");
+          showToast("GitHub account linked successfully!", "success");
+        } catch (err) {
+          console.error("Failed to link GitHub account:", err);
+          setGithubError(err.message || "Failed to link GitHub account.");
+          showToast(err.message || "Failed to link GitHub account.", "error");
+        } finally {
+          setGithubExchanging(false);
+        }
+      };
+      
+      handleGithubExchange();
+    }
+  }, [session]);
 
   // Track Supabase Auth session changes
   useEffect(() => {
@@ -226,6 +263,18 @@ function App() {
           >
             Signals
           </button>
+          <button
+            className={`tab-btn ${activeTab === "github" ? "active" : ""}`}
+            onClick={() => setActiveTab("github")}
+          >
+            GitHub Connect
+          </button>
+          <button
+            className={`tab-btn ${activeTab === "recommendations" ? "active" : ""}`}
+            onClick={() => setActiveTab("recommendations")}
+          >
+            AI Recommendations
+          </button>
           {isAdmin && (
             <>
               <button
@@ -246,36 +295,51 @@ function App() {
 
         {error ? (
           <div className="premium-card error-card">
-            <div className="error-title">Registry Connection Error</div>
+            <div className="error-title">
+              {error.includes("429") || error.toLowerCase().includes("rate limit")
+                ? "Rate Limit Exceeded"
+                : "Registry Connection Error"}
+            </div>
             <p className="error-text">
-              Failed to connect to the FastAPI backend. Make sure the server is
-              running on port 8000.
+              {error.includes("429") || error.toLowerCase().includes("rate limit")
+                ? "You have made too many requests. Please wait 30 seconds without refreshing so that the lockout window resets."
+                : "Failed to connect to the FastAPI backend. Make sure the server is running on port 8000."}
             </p>
             <button className="retry-btn" onClick={fetchGoals}>
               Attempt Reconnection
             </button>
           </div>
-        ) : activeTab === "signals" || activeTab === "admin_signals" ? (
-          <SignalsView
-            signals={signals || []}
-            loading={signalsLoading || signals === null}
-            onIngestSignal={handleIngestSignal}
-            isAdminView={activeTab === "admin_signals"}
-            usersMap={usersMap}
-          />
-        ) : (
-          <GoalsList
-            apiBase={API_BASE}
-            isAdminView={activeTab === "admin"}
-            usersMap={usersMap}
-            goals={activeTab === "admin"
-              ? goals
-              : activeTab === "active" 
-                ? goals.filter(g => g.smile_phase !== "perpetual-wisdom")
-                : goals.filter(g => g.smile_phase === "perpetual-wisdom")}
-            onGoalUpdated={fetchGoals}
-          />
-        )}
+      ) : githubExchanging ? (
+        <div className="premium-card github-loading">
+          <div className="github-spinner"></div>
+          <p>Exchanging GitHub authorization code...</p>
+        </div>
+      ) : activeTab === "github" ? (
+        <GithubTracker userId={session?.user?.id} />
+      ) : activeTab === "recommendations" ? (
+        <RecommendationsView userId={session?.user?.id} onGoalCreated={fetchGoals} goals={goals} />
+      ) : activeTab === "signals" || activeTab === "admin_signals" ? (
+        <SignalsView
+          userId={session?.user?.id}
+          signals={signals || []}
+          loading={signalsLoading || signals === null}
+          onIngestSignal={handleIngestSignal}
+          isAdminView={activeTab === "admin_signals"}
+          usersMap={usersMap}
+        />
+      ) : (
+        <GoalsList
+          apiBase={API_BASE}
+          isAdminView={activeTab === "admin"}
+          usersMap={usersMap}
+          goals={activeTab === "admin"
+            ? goals
+            : activeTab === "active" 
+              ? goals.filter(g => g.smile_phase !== "perpetual-wisdom")
+              : goals.filter(g => g.smile_phase === "perpetual-wisdom")}
+          onGoalUpdated={fetchGoals}
+        />
+      )}
       </div>
 
       <GoalCreateModal

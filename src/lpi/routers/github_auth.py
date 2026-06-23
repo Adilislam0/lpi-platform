@@ -32,13 +32,19 @@ class TrackRepoRequest(BaseModel):
     repo_name: str
 
 
+# ADDED: New model for the disconnect request
+class DisconnectRepoRequest(BaseModel):
+    user_id: str
+    repo_owner: str
+    repo_name: str
+
+
 # --- Mock Database ---
 # In production, this saves to your database table: user_id -> github_access_token
 token_db: dict[str, str] = {}
 
 # --- Configuration ---
 # Your webhook receiver URL.
-# Update this to your real production domain when deploying, or keep updated with Ngrok for local testing.
 WEBHOOK_TARGET_URL = "https://balance-suburb-singular.ngrok-free.dev/api/v1/webhooks/github"
 
 
@@ -75,9 +81,6 @@ async def exchange_github_token(request: TokenExchangeRequest):
     # Securely save this token tied to the user's profile
     token_db[request.user_id] = access_token
 
-    # Example production integration:
-    # store.save_github_token(request.user_id, access_token)
-
     return {"status": "success", "message": "GitHub account linked securely!"}
 
 
@@ -91,7 +94,6 @@ async def list_user_repositories(user_id: str):
     if not access_token:
         raise HTTPException(status_code=404, detail="User has not connected their GitHub account.")
 
-    # GitHub API endpoint to list repositories for the authenticated user
     url = "https://api.github.com/user/repos?per_page=100&sort=updated"
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -109,7 +111,6 @@ async def list_user_repositories(user_id: str):
 
     repos = response.json()
 
-    # Filter out clean structural data for the frontend dropdown selection
     repo_list = [
         {
             "id": repo["id"],
@@ -118,6 +119,7 @@ async def list_user_repositories(user_id: str):
             "private": repo["private"],
             "owner": repo["owner"]["login"],
             "html_url": repo["html_url"],
+            "permissions": repo.get("permissions", {}),
         }
         for repo in repos
     ]
@@ -131,12 +133,10 @@ async def auto_register_webhook(request: TrackRepoRequest):
     The frontend hits this when the user selects a specific repo from the dropdown.
     We use their saved token to automatically attach our webhook to that exact repo.
     """
-    # Grab the user's saved token from the database
     access_token = token_db.get(request.user_id)
     if not access_token:
         raise HTTPException(status_code=401, detail="No GitHub account linked.")
 
-    # Tell GitHub to create a webhook on this specific repository
     url = f"https://api.github.com/repos/{request.repo_owner}/{request.repo_name}/hooks"
 
     payload = {
@@ -155,12 +155,64 @@ async def auto_register_webhook(request: TrackRepoRequest):
         response = await client.post(url, json=payload, headers=headers)
 
     if response.status_code not in [200, 201]:
-        # If it returns 422, it usually means the webhook already exists on that repo
         if response.status_code == 422:
             return {"status": "success", "message": "Webhook already tracking this repo!"}
         raise HTTPException(status_code=response.status_code, detail="Failed to register webhook.")
 
-    # Example production integration to mark this as the active tracked repo:
-    # store.set_active_repo(request.user_id, request.repo_name)
-
     return {"status": "success", "message": f"Successfully tracking {request.repo_name}!"}
+
+
+# ADDED: The new Disconnect Endpoint
+@router.post("/disconnect-repo", status_code=status.HTTP_200_OK)
+async def disconnect_github(request: DisconnectRepoRequest):
+    """
+    Finds our specific webhook on the user's GitHub repo, deletes it, 
+    and removes their access token from the local database.
+    """
+    access_token = token_db.get(request.user_id)
+    if not access_token:
+        raise HTTPException(status_code=404, detail="No GitHub account linked.")
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    async with httpx.AsyncClient() as client:
+        # Step 1: List all webhooks for this repo to find ours
+        hooks_url = f"https://api.github.com/repos/{request.repo_owner}/{request.repo_name}/hooks"
+        hooks_response = await client.get(hooks_url, headers=headers)
+
+        if hooks_response.status_code == 200:
+            hooks = hooks_response.json()
+            target_hook_id = None
+
+            # Find the webhook that points to our WEBHOOK_TARGET_URL
+            for hook in hooks:
+                if hook.get("config", {}).get("url") == WEBHOOK_TARGET_URL:
+                    target_hook_id = hook["id"]
+                    break
+
+            # Step 2: Delete the webhook if we found it
+            if target_hook_id:
+                delete_url = f"{hooks_url}/{target_hook_id}"
+                await client.delete(delete_url, headers=headers)
+
+    # Step 3: Remove the token from our local mock DB
+    if request.user_id in token_db:
+        del token_db[request.user_id]
+
+    return {"status": "success", "message": f"Successfully disconnected from {request.repo_name}."}
+
+
+@router.post("/disconnect-account/{user_id}", status_code=status.HTTP_200_OK)
+async def disconnect_github_account(user_id: str):
+    """
+    Clears the stored GitHub oauth access token for this specific user ID,
+    disconnecting their entire account profile integration.
+    """
+    if user_id in token_db:
+        del token_db[user_id]
+        return {"status": "success", "message": "Successfully disconnected your GitHub account."}
+    raise HTTPException(status_code=404, detail="No GitHub account linked.")
+

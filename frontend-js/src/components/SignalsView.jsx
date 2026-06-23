@@ -126,6 +126,11 @@ function TimelineSignalCard({ signal, isAdminView, usersMap }) {
           <div className="timeline-card-header-left">
             <span className="timeline-card-time">{displayTime}</span>
             <StreamBadge stream={signal.stream} />
+            {signal.stream === "github" && signal.payload?.repo && (
+              <span className="source-badge" style={{ background: "rgba(255, 255, 255, 0.08)", border: "1px solid rgba(255, 255, 255, 0.15)", color: "#e2e8f0", textTransform: "none" }}>
+                📁 {signal.payload.repo.split("/").pop()}
+              </span>
+            )}
             <span className="timeline-card-title">{signal.event_type}</span>
             <SourceBadge source={signal.source} />
           </div>
@@ -176,6 +181,7 @@ function TimelineSignalCard({ signal, isAdminView, usersMap }) {
 }
 
 export function SignalsView({
+  userId,
   signals = [],
   loading,
   onIngestSignal,
@@ -213,58 +219,87 @@ export function SignalsView({
     const autoSync = async () => {
       if (loading) return;
       try {
-        const repoName = "Jahanvi3005/demo4";
-        const response = await fetch(
-          `https://api.github.com/repos/${repoName}/events`,
-        );
-        if (!active || !response.ok) return;
-        const events = await response.json();
-        if (!active) return;
-        const recentEvents = events.slice(0, 20);
+        const storageKey = userId ? `tracked_repos_${userId}` : "tracked_repos";
+        const trackedRepos = JSON.parse(localStorage.getItem(storageKey) || "[]");
+        if (trackedRepos.length === 0) return;
 
-        for (const ev of recentEvents) {
+        for (const repoName of trackedRepos) {
           if (!active) return;
-          const alreadyExists =
-            (signalsRef.current || []).some(
-              (s) => s.payload && s.payload.github_event_id === ev.id,
-            ) || localIngestedIdsRef.current.has(ev.id);
-          if (alreadyExists) continue;
+          const response = await fetch(
+            `https://api.github.com/repos/${repoName}/events`,
+          );
+          let events = [];
+          if (response.ok) {
+            events = await response.json();
+          }
 
-          if (onIngestSignal) {
-            const eventPayload = {
-              github_event_id: ev.id,
-              repo: ev.repo.name,
-              actor: ev.actor.login,
-              created_at: formatToIST(ev.created_at),
-            };
-
-            if (ev.payload?.action) {
-              eventPayload.action = ev.payload.action;
+          if (events.length === 0) {
+            const commitsResponse = await fetch(
+              `https://api.github.com/repos/${repoName}/commits?per_page=10`,
+            );
+            if (commitsResponse.ok) {
+              const commits = await commitsResponse.json();
+              events = commits.map(c => ({
+                id: c.sha,
+                type: "PushEvent",
+                repo: { name: repoName },
+                actor: { login: c.author?.login || c.commit?.author?.name || "unknown" },
+                created_at: c.commit?.author?.date,
+                payload: {
+                  ref: "refs/heads/main",
+                  commits: [{ message: c.commit?.message }]
+                }
+              }));
             }
+          }
 
-            if (ev.type === "CreateEvent") {
-              eventPayload.ref_type = ev.payload?.ref_type || null;
-              eventPayload.ref = ev.payload?.ref || null;
-            } else if (ev.type === "PushEvent") {
-              eventPayload.ref = ev.payload?.ref || null;
-              eventPayload.commit_count = ev.payload?.commits?.length || 0;
-              if (ev.payload?.commits && ev.payload.commits.length > 0) {
-                eventPayload.latest_commit_message =
-                  ev.payload.commits[0].message;
+          if (!active) return;
+          const recentEvents = events.slice(0, 20);
+
+          for (const ev of recentEvents) {
+            if (!active) return;
+            const alreadyExists =
+              (signalsRef.current || []).some(
+                (s) => s.payload && s.payload.github_event_id === ev.id,
+              ) || localIngestedIdsRef.current.has(ev.id);
+            if (alreadyExists) continue;
+
+            if (onIngestSignal) {
+              const eventPayload = {
+                github_event_id: ev.id,
+                repo: ev.repo.name,
+                actor: ev.actor.login,
+                created_at: formatToIST(ev.created_at),
+              };
+
+              if (ev.payload?.action) {
+                eventPayload.action = ev.payload.action;
               }
-            } else if (ev.type === "PullRequestEvent") {
-              eventPayload.action = ev.payload?.action || null;
-              eventPayload.pr_title = ev.payload?.pull_request?.title || null;
-              eventPayload.pr_number = ev.payload?.pull_request?.number || null;
-            }
 
-            localIngestedIdsRef.current.add(ev.id);
-            await onIngestSignal({
-              stream: "github",
-              event_type: ev.type,
-              source: "github_api",
-              payload: eventPayload,
-            });
+              if (ev.type === "CreateEvent") {
+                eventPayload.ref_type = ev.payload?.ref_type || null;
+                eventPayload.ref = ev.payload?.ref || null;
+              } else if (ev.type === "PushEvent") {
+                eventPayload.ref = ev.payload?.ref || null;
+                eventPayload.commit_count = ev.payload?.commits?.length || 0;
+                if (ev.payload?.commits && ev.payload.commits.length > 0) {
+                  eventPayload.latest_commit_message =
+                    ev.payload.commits[0].message;
+                }
+              } else if (ev.type === "PullRequestEvent") {
+                eventPayload.action = ev.payload?.action || null;
+                eventPayload.pr_title = ev.payload?.pull_request?.title || null;
+                eventPayload.pr_number = ev.payload?.pull_request?.number || null;
+              }
+
+              localIngestedIdsRef.current.add(ev.id);
+              await onIngestSignal({
+                stream: "github",
+                event_type: ev.type,
+                source: "github_api",
+                payload: eventPayload,
+              });
+            }
           }
         }
       } catch (err) {
@@ -287,7 +322,6 @@ export function SignalsView({
     };
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Apply filters and sort by time descending
   const filtered = useMemo(() => {
     const getSignalTime = (s) => {
       if (s.payload && s.payload.created_at) {
@@ -297,13 +331,23 @@ export function SignalsView({
       return new Date(s.timestamp).getTime();
     };
 
+    const storageKey = userId ? `tracked_repos_${userId}` : "tracked_repos";
+    const trackedRepos = JSON.parse(localStorage.getItem(storageKey) || "[]").map(
+      (name) => name.toLowerCase()
+    );
+
     return signals
       .filter((s) => {
-        // Only display github signals belonging to the current demo repo (Jahanvi3005/demo4)
-        if (s.stream === "github") {
+        if (s.stream === "github" && !isAdminView) {
           const repoName = s.payload?.repo ? s.payload.repo.toLowerCase() : "";
-          if (repoName && repoName !== "jahanvi3005/demo4") {
-            return false;
+          if (repoName) {
+            const isMatch = trackedRepos.some(
+              (tracked) =>
+                tracked === repoName ||
+                tracked.endsWith("/" + repoName) ||
+                repoName.endsWith("/" + tracked)
+            );
+            if (!isMatch) return false;
           }
         }
         if (filterStream && s.stream !== filterStream) return false;
@@ -311,7 +355,7 @@ export function SignalsView({
         return true;
       })
       .sort((a, b) => getSignalTime(b) - getSignalTime(a));
-  }, [signals, filterStream, filterSource]);
+  }, [signals, filterStream, filterSource, userId, isAdminView]);
 
   // Group by date
   const groupedSignals = useMemo(() => {
@@ -342,40 +386,6 @@ export function SignalsView({
       <div className="signals-view-toolbar">
         <div className="signals-view-toolbar-row">
           <h3 className="signals-view-title">Signal History</h3>
-
-          <div className="signals-view-filters">
-            <div className="signals-view-filter-group">
-              <span className="signals-view-filter-label">Stream:</span>
-              <select
-                value={filterStream}
-                onChange={(e) => setFilterStream(e.target.value)}
-                className="signals-view-select"
-              >
-                <option value="">All Streams</option>
-                {streams.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="signals-view-filter-group">
-              <span className="signals-view-filter-label">Source:</span>
-              <select
-                value={filterSource}
-                onChange={(e) => setFilterSource(e.target.value)}
-                className="signals-view-select"
-              >
-                <option value="">All Sources</option>
-                {sources.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
         </div>
 
         {/* Timeline Implementation */}
