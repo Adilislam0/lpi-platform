@@ -11,21 +11,22 @@
 ## Table of Contents
 
 1. [What This Project Does](#1-what-this-project-does)
-2. [Prerequisites](#2-prerequisites)
-3. [Quick Start — Local Dev](#3-quick-start--local-dev)
-4. [Environment Variables](#4-environment-variables)
-5. [SMILE Methodology](#5-smile-methodology)
-6. [Phase 1 — Strategy & Architecture](#6-phase-1--strategy--architecture)
-7. [Phase 2 — Goal / Intent Registry (Module 1)](#7-phase-2--goal--intent-registry-module-1)
-8. [Phase 3 — Activity Signals (Module 2)](#8-phase-3--activity-signals-module-2)
-9. [Phase 4 — Recommendation Engine (Module 3)](#9-phase-4--recommendation-engine-module-3)
-10. [Phase 5 — QA, Integration & Polish](#10-phase-5--qa-integration--polish)
-11. [API Reference — Full Endpoint List](#11-api-reference--full-endpoint-list)
-12. [Database Schema](#12-database-schema)
-13. [Testing](#13-testing)
-14. [Project Structure](#14-project-structure)
-15. [Team & Ownership](#15-team--ownership)
-16. [Next Steps & Improvements](#16-next-steps--improvements)
+2. [System Architecture — Goals × Signals × Recommendations](#2-system-architecture--goals--signals--recommendations)
+3. [Prerequisites](#3-prerequisites)
+4. [Quick Start — Local Dev](#4-quick-start--local-dev)
+5. [Environment Variables](#5-environment-variables)
+6. [SMILE Methodology](#6-smile-methodology)
+7. [Phase 1 — Strategy & Architecture](#7-phase-1--strategy--architecture)
+8. [Phase 2 — Goal / Intent Registry (Module 1)](#8-phase-2--goal--intent-registry-module-1)
+9. [Phase 3 — Activity Signals (Module 2)](#9-phase-3--activity-signals-module-2)
+10. [Phase 4 — Recommendation Engine (Module 3)](#10-phase-4--recommendation-engine-module-3)
+11. [Phase 5 — QA, Integration & Polish](#11-phase-5--qa-integration--polish)
+12. [API Reference — Full Endpoint List](#12-api-reference--full-endpoint-list)
+13. [Database Schema](#13-database-schema)
+14. [Testing](#14-testing)
+15. [Project Structure](#15-project-structure)
+16. [Team & Ownership](#16-team--ownership)
+17. [Next Steps & Improvements](#17-next-steps--improvements)
 
 ---
 
@@ -41,7 +42,290 @@ The LPI Platform is a backend API that helps users track and advance their perso
 
 ---
 
-## 2. Prerequisites
+## 2. System Architecture — Goals × Signals × Recommendations
+
+This section documents exactly how the three core modules connect to each other end-to-end, including the latest **goal-scoped signals** feature (June 25, 2026).
+
+---
+
+### High-level data flow
+
+```
+User / Frontend / External Source (Boardy, GitHub)
+        │
+        │  HTTP requests with Supabase JWT
+        ▼
+┌──────────────────────────────────────────────────────────────┐
+│                     FastAPI Application                       │
+│                                                              │
+│  ┌─────────────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │   Module 1      │  │   Module 2   │  │   Module 3     │  │
+│  │    Goals        │  │   Signals    │  │ Recommendations│  │
+│  │ /api/v1/goals   │  │/api/v1/signals│ │/api/v1/recs    │  │
+│  └────────┬────────┘  └──────┬───────┘  └──────┬─────────┘  │
+│           │                  │                  │            │
+│           └──────────────────┴──────────────────┘            │
+│                              │                               │
+│                    store.py (single DB layer)                │
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+                               ▼
+                       Supabase (PostgreSQL)
+    goals │ activity_signals (+ goal_id FK) │ recommendation_feedback
+    goal_phase_transitions │ user_activity_logs │ system_logs
+```
+
+---
+
+### Database relationships (June 25 update)
+
+```
+goals
+  id (PK)
+  user_id
+  title, priority, smile_phase, urgency_flag
+  created_at, updated_at
+    │
+    │  FK: activity_signals.goal_id → goals.id (ON DELETE SET NULL)
+    │  Nullable — signals without a goal still work fine
+    ▼
+activity_signals
+  id (PK)
+  user_id
+  goal_id (FK → goals.id, nullable)   ← NEW: goal-scoped signals
+  stream, event_type, payload, source
+  timestamp
+    │
+    │  source_goals / source_signals lists in Recommendation
+    ▼
+recommendation_feedback
+  id (PK)
+  user_id
+  recommendation_id (NOT a FK — recs are ephemeral, not persisted)
+  action, smile_phase, status (accepted | dismissed)
+  created_at
+```
+
+---
+
+### How Goals feed into Recommendations
+
+1. User creates a goal via `POST /api/v1/goals/`
+2. Goal stored in `goals` table with `smile_phase` and `priority`
+3. On `GET /api/v1/recommendations/{user_id}`, `store.list_goals(user_id)` fetches all the user's goals
+4. `score_goal(goal)` computes priority: `(priority × 0.5) + (phase_weight × 0.3) + (urgency × 0.2)`
+5. Each goal produces one recommendation: **advance to the next SMILE phase**
+6. Goal UUID appears in `source_goals` — full traceability back to the source goal
+
+```
+Goal: "Ship dashboard"  phase=concurrent-engineering  priority=8  urgency=True
+          │
+          ▼  score_goal() → 4.80
+          │
+Recommendation:
+  action:       "Advance 'Ship dashboard' to collective-intelligence"
+  smile_phase:  collective-intelligence  (one step forward)
+  priority:     4.80
+  source_goals: ["<goal-uuid>"]
+```
+
+---
+
+### How Signals feed into Recommendations
+
+Signals can now be either **user-scoped** (general activity) or **goal-scoped** (linked to a specific goal):
+
+```
+Signal (user-scoped)                   Signal (goal-scoped) ← NEW
+  stream: "boardy"                       stream: "lpi"
+  event_type: "match_created"            event_type: "pr_merged"
+  goal_id: null                          goal_id: "<goal-uuid>"  ← FK to goals
+  source: "boardy_webhook"               source: "github_api"
+       │                                      │
+       ▼                                      ▼
+General signal recommendation         Goal-specific recommendation
+  phase: collective-intelligence        (surfaces alongside that specific goal)
+  source_signals: ["<signal-id>"]       source_goals + source_signals both set
+```
+
+When recommendations are generated:
+- `store.list_signals(user_id, limit=20)` fetches the 20 most recent signals
+- Signals with `goal_id` set are matched to their parent goal for richer reasoning
+- All signals aggregate into a `collective-intelligence` recommendation
+
+---
+
+### Goal-scoped recommendation endpoint (NEW — June 25)
+
+A dedicated endpoint for per-goal recommendations using only signals linked to that goal:
+
+```
+POST /api/v1/recommendations/{user_id}/by-goal/{goal_id}
+        │
+        ├─ Verifies caller owns goal_id (404 if not)
+        ├─ store.list_signals(user_id, goal_id=goal_id)  ← only signals for THIS goal
+        ├─ Runs LangGraph agent over goal + its specific signals
+        └─ Returns top 3 recommendations scoped to that goal
+```
+
+This is different from the general `/run` endpoint which reasons over ALL of a user's goals and signals.
+
+---
+
+### Full recommendation pipeline — three endpoints compared
+
+| Endpoint | Data scope | Engine | Always 3 cards? |
+|----------|-----------|--------|-----------------|
+| `GET /{user_id}` | All user goals + all signals | Deterministic + optional LLM | ✅ (cold-start fallback) |
+| `POST /{user_id}/run` | All user goals + all signals | 7-node LangGraph pipeline | ✅ (guaranteed) |
+| `POST /{user_id}/by-goal/{goal_id}` | Single goal + its signals only | LangGraph agent | ✅ (capped at 3) |
+
+---
+
+### LangGraph orchestration pipeline (POST /run)
+
+```
+POST /api/v1/recommendations/{user_id}/run
+                │
+                ▼
+        run_pipeline(user_id, n_cards=3)
+                │
+    ┌───────────▼────────────┐
+    │  Node 1: fetch         │  store.list_goals(user_id)
+    │                        │  store.list_signals(user_id, limit=20)
+    └───────────┬────────────┘
+                │
+    ┌───────────▼────────────┐
+    │  Node 2: classify      │  no data?  → cold_start
+    │                        │  has data? → llm
+    │                        │  DB error? → fallback
+    └─────┬──────────────────┘
+          │
+    ┌─────┴──────────┐
+    │                │
+[llm path]    [cold_start / fallback]
+    │                │
+┌───▼────────┐  ┌────▼─────────────────────┐
+│ Node 3:    │  │ Node 6: fallback          │
+│ reason     │  │ build_cold_start_recs()   │
+│ LangGraph  │  │ 3 hardcoded SMILE cards   │
+│ Groq/Claude│  └────┬─────────────────────┘
+└───┬────────┘        │
+    │                 │
+┌───▼────────┐        │
+│ Node 4:    │        │
+│ validate   │        │
+│ retry once │        │
+│ on bad LLM │        │
+└───┬────────┘        │
+    │                 │
+┌───▼────────┐        │
+│ Node 5:    │        │
+│ enrich     │        │
+│ Goals+Sigs │        │
+│ → Rec objs │        │
+└───┬────────┘        │
+    │                 │
+    └────────┬────────┘
+             │
+    ┌────────▼────────────┐
+    │  Node 7: finalise   │
+    │  deduplicate        │
+    │  sort priority DESC │
+    │  pad to 3 if needed │
+    │  slice to 3         │
+    └────────┬────────────┘
+             │
+             ▼
+    list[Recommendation]  ← always exactly 3
+```
+
+**Guarantee:** `run_pipeline()` never raises and always returns exactly 3 cards, regardless of LLM availability, DB state, or user data.
+
+---
+
+### Three-tier fallback cascade
+
+| Tier | When it fires | Output |
+|------|--------------|--------|
+| **Tier 1 — LLM reasoning** | User has data AND LLM is available | Real AI-generated actions referencing specific goal/signal IDs |
+| **Tier 2 — Deterministic engine** | LLM unavailable or bad JSON | Template-based but real-data-driven: advances each goal one SMILE phase, aggregates signals |
+| **Tier 3 — Cold start** | No data, DB unreachable, or any unhandled error | 3 hardcoded SMILE-grounded starter cards |
+
+---
+
+### Recommendation feedback loop
+
+After a user acts on a recommendation, their choice is stored:
+
+```
+User sees recommendation card
+        │
+        ├─ clicks Accept  → POST /api/v1/recommendations/{user_id}/feedback
+        │                    { recommendation_id, action, smile_phase, status: "accepted" }
+        │
+        └─ clicks Dismiss → POST /api/v1/recommendations/{user_id}/feedback
+                             { recommendation_id, action, smile_phase, status: "dismissed" }
+                                    │
+                                    ▼
+                         recommendation_feedback table
+                         (snapshots action + smile_phase — recs are ephemeral,
+                          no FK to a recommendations table)
+                                    │
+                                    ▼
+                         Future: engine reads dismissed recs
+                         to avoid re-surfacing them
+```
+
+---
+
+### Complete end-to-end request trace
+
+```
+1. User logs in via Supabase Auth → gets JWT
+2. User creates goal:
+   POST /api/v1/goals/
+   → stored in goals table (user_id from JWT)
+   → logged: user_activity_logs (action=goal_created)
+   → logged: goal_phase_transitions (if phase changes)
+
+3. GitHub merges PR → webhook fires:
+   POST /api/v1/webhooks/github
+   → parsed as event_type=pr_merged
+   → stored: activity_signals (stream=lpi, source=github_webhook,
+                                goal_id=<goal-uuid> if linked)
+   → logged: user_activity_logs (action=signal_ingested)
+
+4a. General recommendations:
+    GET /api/v1/recommendations/{user_id}
+    → loads ALL goals + signals
+    → deterministic engine: one rec per goal (advance phase)
+                            + one rec per signal cluster
+    → returns top 3 by priority
+
+4b. Pipeline recommendations (demo-safe):
+    POST /api/v1/recommendations/{user_id}/run
+    → 7-node pipeline (fetch/classify/reason/validate/enrich/fallback/finalise)
+    → LLM generates natural language action + reasoning
+    → deterministic engine derives phase + priority (LLM just writes the text)
+    → always returns exactly 3 cards
+
+4c. Goal-scoped recommendations (NEW):
+    POST /api/v1/recommendations/{user_id}/by-goal/{goal_id}
+    → loads ONE goal + ONLY its linked signals
+    → LangGraph agent reasons over goal + specific signals
+    → returns up to 3 cards focused on that goal
+
+5. Frontend renders recommendation cards
+
+6. User clicks Accept:
+   POST /api/v1/recommendations/{user_id}/feedback
+   → stored: recommendation_feedback (status=accepted)
+```
+
+---
+
+## 3. Prerequisites
 
 | Tool | Version | Install |
 |------|---------|---------|
@@ -53,7 +337,7 @@ The LPI Platform is a backend API that helps users track and advance their perso
 
 ---
 
-## 3. Quick Start — Local Dev
+## 4. Quick Start — Local Dev
 
 ### Step 1 — Clone & install
 
@@ -118,7 +402,7 @@ make clean     # remove __pycache__ dirs
 
 ---
 
-## 4. Environment Variables
+## 5. Environment Variables
 
 Copy `.env.example` to `.env` and fill in the values.
 
@@ -145,7 +429,7 @@ cp .env.example .env
 
 ---
 
-## 5. SMILE Methodology
+## 6. SMILE Methodology
 
 **Full name:** Sustainable Methodology for Impact Lifecycle Enablement  
 **Author:** Nicolas Waern, WINNIIO / LifeAtlas  
@@ -195,7 +479,7 @@ score = (priority × 0.5) + (phase_weight × 0.3) + (urgency_flag × 0.2)
 
 ---
 
-## 6. Phase 1 — Strategy & Architecture
+## 7. Phase 1 — Strategy & Architecture
 
 **Timeline:** Week 1  
 **Team deliverables:**
@@ -208,7 +492,7 @@ score = (priority × 0.5) + (phase_weight × 0.3) + (urgency_flag × 0.2)
 
 ---
 
-## 7. Phase 2 — Goal / Intent Registry (Module 1)
+## 8. Phase 2 — Goal / Intent Registry (Module 1)
 
 **Timeline:** Week 2  
 **Owner:** Adil Islam · **QA:** Daksh Garg
@@ -494,6 +778,7 @@ All endpoints require `Authorization: Bearer <supabase-jwt>` except `/health`.
 | `GET` | `/api/v1/recommendations/{user_id}` | ✅ JWT | Top `limit` recommendations (default 3, max 10) |
 | `POST` | `/api/v1/recommendations/{user_id}/feedback` | ✅ JWT | Submit accept/dismiss feedback |
 | `POST` | `/api/v1/recommendations/{user_id}/run` | ✅ JWT | Run full LangGraph pipeline — always returns 3 cards |
+| `POST` | `/api/v1/recommendations/{user_id}/by-goal/{goal_id}` | ✅ JWT | Run pipeline scoped to one goal + its linked signals |
 
 ### Webhooks — `/api/v1/webhooks`
 
@@ -528,6 +813,7 @@ All migrations live in `supabase/migrations/`. Run `supabase db push` to apply t
 | `20260613000000_logs_rls.sql` | RLS policies on log tables | Team |
 | `20260615000000_signals_rls_and_log_action.sql` | RLS on `activity_signals` + CHECK fix | Adil |
 | `20260621000000_create_recommendation_feedback.sql` | `recommendation_feedback` | Aryan |
+| `20260625000000_activity_signals_goal_fk.sql` | `goal_id` FK on `activity_signals` + strict goal-scoped RLS | Jaivardhan |
 
 ### Table overview
 
@@ -694,6 +980,6 @@ lpi-platform/
 - [ ] Add real-time signal streaming via Supabase Realtime for the frontend timeline
 
 ---
-**Updated by Adil**
+**Updated by TEAM LPI**
 
-*LPI Platform — Winniio Amity 2026 Internship · Demo Day: June 27, 2026*
+*LPI Platform — Winniio Amity 2026 Internship · Demo Day: June 26, 2026*
