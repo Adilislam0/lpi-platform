@@ -58,9 +58,9 @@ NOTE: the user_activity_logs CHECK constraint originally only allowed
 """
 
 import uuid
-import httpx
 from datetime import UTC, datetime
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from lpi import store
