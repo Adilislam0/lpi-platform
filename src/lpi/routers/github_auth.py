@@ -43,6 +43,9 @@ class DisconnectRepoRequest(BaseModel):
 # In production, this saves to your database table: user_id -> github_access_token
 token_db: dict[str, str] = {}
 
+# Reverse mapping: "owner/repo" -> user_id, populated when a webhook is registered.
+repo_db: dict[str, str] = {}
+
 # --- Configuration ---
 # Your webhook receiver URL.
 WEBHOOK_TARGET_URL = "https://balance-suburb-singular.ngrok-free.dev/api/v1/webhooks/github"
@@ -156,9 +159,11 @@ async def auto_register_webhook(request: TrackRepoRequest):
 
     if response.status_code not in [200, 201]:
         if response.status_code == 422:
+            repo_db[f"{request.repo_owner}/{request.repo_name}"] = request.user_id
             return {"status": "success", "message": "Webhook already tracking this repo!"}
         raise HTTPException(status_code=response.status_code, detail="Failed to register webhook.")
 
+    repo_db[f"{request.repo_owner}/{request.repo_name}"] = request.user_id
     return {"status": "success", "message": f"Successfully tracking {request.repo_name}!"}
 
 
@@ -198,9 +203,10 @@ async def disconnect_github(request: DisconnectRepoRequest):
                 delete_url = f"{hooks_url}/{target_hook_id}"
                 await client.delete(delete_url, headers=headers)
 
-    # Step 3: Remove the token from our local mock DB
+    # Step 3: Remove the token and repo mapping from our local mock DB
     if request.user_id in token_db:
         del token_db[request.user_id]
+    repo_db.pop(f"{request.repo_owner}/{request.repo_name}", None)
 
     return {"status": "success", "message": f"Successfully disconnected from {request.repo_name}."}
 
