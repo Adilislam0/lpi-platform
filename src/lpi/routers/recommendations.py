@@ -56,7 +56,7 @@ hasn't finished in time.
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from lpi import store
 from lpi.agent_pipeline import run_pipeline
@@ -67,6 +67,10 @@ from lpi.models import (
     RecommendationFeedbackCreate,
 )
 from lpi.recommendation_engine import (
+    _diversify_by_phase,
+    _goal_recommendations,
+    _signal_recommendation,
+    _try_langgraph_recommendations,
     build_cold_start_recommendations,
     generate_recommendations,
 )
@@ -189,3 +193,77 @@ def run_recommendation_pipeline(
     regardless of LLM availability, DB state, or user data.
     """
     return run_pipeline(user_id, n_cards=3)
+
+
+# ── Jaivardhan (Module 2 → Module 3): per-goal recommendation flow ───────────
+# Wires a specific Goal's activity_signals (those with goal_id == path.goal_id)
+# into the LangGraph reasoning agent so the LLM reasons about THIS goal's
+# progress and recommends advancing to the next SMILE phase. Falls back to
+# the deterministic Phase 1 engine when the LLM is unavailable or returns
+# nothing parseable — same safety net the rest of the recommendation surface
+# uses. Does NOT change the existing GET /{user_id} contract.
+
+
+@router.post(
+    "/{user_id}/by-goal/{goal_id}",
+    response_model=list[Recommendation],
+    summary="Get recommendations scoped to one goal's signals",
+    description=(
+        "Per-goal recommendation flow. Fetches ONLY activity_signals whose "
+        "goal_id matches {goal_id}, then runs the LangGraph reasoning agent "
+        "over that single goal plus its signals so the LLM reasons about "
+        "THIS goal's progress (not the user's overall portfolio). Returns "
+        "up to 3 Recommendation objects sorted by priority descending. "
+        "Falls back to the deterministic engine when the LLM is unavailable "
+        "or returns nothing parseable — same safety net as "
+        "GET /api/v1/recommendations/{user_id}."
+    ),
+)
+def get_recommendations_by_goal(
+    user_id: str,  # noqa: ARG001 — path-param parity with GET /{user_id}
+    goal_id: str,
+    caller_id: str = Depends(get_current_user),
+) -> list[Recommendation]:
+    """Return up to 3 per-goal recommendations (sorted priority desc).
+
+    Auth: requires a valid Supabase JWT. `user_id` is a path param for
+    parity with `GET /{user_id}` (which intentionally does NOT enforce
+    user_id == caller_id — demo multi-profile pattern). The ownership
+    check is on the GOAL: it must belong to caller_id, otherwise 404
+    (mirrors `routers/goals.py::get_goal` so existence is not leaked).
+    """
+    # 1. Verify goal exists + belongs to the caller.
+    goal = store.get_goal(goal_id)
+    if goal is None or goal.user_id != caller_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Goal {goal_id} not found",
+        )
+
+    # 2. Fetch ONLY this goal's signals (server-side .eq("goal_id", ...)).
+    signals = store.list_signals(
+        user_id=caller_id,
+        goal_id=goal_id,
+        limit=20,
+    )
+
+    # 3. Try the LangGraph agent first (LLM sees exactly this goal +
+    #    its signals). Falls back to None on any LLM failure; never raises.
+    candidates: list[Recommendation] = []
+    langgraph_recs = _try_langgraph_recommendations(caller_id, [goal], signals)
+    if langgraph_recs:
+        candidates.extend(langgraph_recs)
+    else:
+        # 4. Deterministic fallback (same building blocks as
+        #    generate_recommendations() uses). ONE goal, so
+        #    _goal_recommendations returns exactly one rec; plus a
+        #    signal rec if there are signals.
+        candidates.extend(_goal_recommendations(caller_id, [goal]))
+        if signals:
+            signal_rec = _signal_recommendation(caller_id, signals)
+            if signal_rec is not None:
+                candidates.append(signal_rec)
+
+    # 5. One-per-phase diversify, then sort, then slice to 3.
+    diversified = _diversify_by_phase(candidates)
+    return sorted(diversified, key=lambda r: -r.priority)[:3]

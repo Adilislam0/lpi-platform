@@ -189,6 +189,7 @@ def list_signals(
     end: datetime | None = None,
     limit: int = 50,
     offset: int = 0,
+    goal_id: str | None = None,
 ) -> list[Signal]:
     """Return signals from Supabase with optional server-side filters.
 
@@ -216,6 +217,13 @@ def list_signals(
                      Prevents accidentally fetching thousands of rows.
         offset     : How many rows to skip (for pagination).
                      Page 1 = offset 0, Page 2 = offset 50, etc.
+        goal_id    : Filter to signals attached to one specific goal.
+                     Server-side .eq("goal_id", goal_id), backed by
+                     idx_as_goal_id from the
+                     20260625000000_activity_signals_goal_fk migration.
+                     Used by the per-goal recommendation endpoint so the
+                     LangGraph agent reasons about ONE goal's signals
+                     instead of the user's whole portfolio.
 
     TIME-RANGE FILTERING EXPLAINED
     ─────────────────────────────────
@@ -275,6 +283,15 @@ def list_signals(
         query = query.eq("event_type", event_type)
     if source:
         query = query.eq("source", source)
+
+    # Filter to signals attached to one specific goal. Server-side .eq()
+    # uses the idx_as_goal_id index added in
+    # supabase/migrations/20260625000000_activity_signals_goal_fk.sql.
+    # Used by the per-goal recommendation endpoint
+    # (POST /api/v1/recommendations/{user_id}/by-goal/{goal_id}) so the
+    # LangGraph agent reasons ONLY about signals tagged to that goal.
+    if goal_id:
+        query = query.eq("goal_id", goal_id)
 
     # Time-range filter (new). `if start:` / `if end:` works correctly here
     # because datetime instances are always truthy in Python (no __bool__
