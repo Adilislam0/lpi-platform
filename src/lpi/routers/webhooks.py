@@ -1,7 +1,12 @@
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
 from fastapi import APIRouter, Request, status
 
-# Importing your store based on your actual file structure
-# from lpi import store
+from lpi import store
+from lpi.models import Signal
+from lpi.routers.github_auth import repo_db
 
 router = APIRouter()
 
@@ -11,7 +16,7 @@ async def github_webhook_receiver(request: Request):
     payload = await request.json()
     event_type = request.headers.get("X-GitHub-Event")
 
-    signal_data = None
+    signal_data: dict[str, Any] | None = None
 
     # 1. Catch Merged PRs
     if (
@@ -52,21 +57,24 @@ async def github_webhook_receiver(request: Request):
             },
         }
 
-    # Save to database if it's a valid event
     if signal_data:
-        # COMMENTED OUT FOR PHASE 3 LINTING - BRING BACK IN PHASE 4
-        # full_db_record = {
-        #     "id": str(uuid.uuid4()),
-        #     "user_id": "default_user",
-        #     "stream": "lpi",
-        #     "event_type": signal_data["event_type"],
-        #     "source": "github_webhook",
-        #     "payload": signal_data["payload"],
-        #     "timestamp": datetime.now(UTC).isoformat()
-        # }
+        repo_full_name = payload.get("repository", {}).get("full_name")
+        user_id = repo_db.get(repo_full_name) if repo_full_name else None
 
-        # We can leave this uncommented now since we imported the store
-        # store.insert_signal(full_db_record)
-        print(f"✅ AUTOMATIC DETECTION: Saved {signal_data['event_type']}!")
+        if not user_id:
+            print(f"⚠️ Webhook received for unregistered repo '{repo_full_name}', skipping save.")
+            return {"status": "success"}
+
+        signal = Signal(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            stream="lpi",
+            event_type=signal_data["event_type"],
+            source="github_webhook",
+            payload=signal_data["payload"],
+            timestamp=datetime.now(UTC),
+        )
+        store.insert_signal(signal)
+        print(f"✅ AUTOMATIC DETECTION: Saved {signal_data['event_type']} for user {user_id}!")
 
     return {"status": "success"}
