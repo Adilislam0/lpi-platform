@@ -310,6 +310,17 @@ async def sync_github_events(
     """
     Fetch live events from GitHub and ingest them as signals linked to a goal.
     """
+    # Danial's constraint: signals can only be attached to goals the
+    # caller owns. Without this check, an attacker could attach GitHub
+    # events to another user's goal by knowing the goal_id.
+    # 404 (not 403) — mirrors routers/goals.py so existence is not leaked.
+    goal = store.get_goal(goal_id)
+    if goal is None or goal.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Goal {goal_id} not found",
+        )
+
     url = f"https://api.github.com/repos/{repo_name}/events"
 
     # 1. Fetch live data from GitHub

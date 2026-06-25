@@ -90,12 +90,18 @@ def _build_prompt(goals: list[Goal], signals: list[Signal]) -> str:
     """Build the SMILE-grounded reasoning prompt sent to the LLM.
 
     WHAT: lists every goal (id, title, phase, priority, urgency) and every
-    signal (id, stream, event_type) in plain text, then demands a STRICT
-    JSON array back.
+    signal (id, stream, event_type, source, goal_id) in plain text, then
+    demands a STRICT JSON array back.
 
     WHY: naming each goal/signal explicitly — instead of just describing
     "the user's goals" abstractly — is what forces the LLM to reason about
     THIS user's real data instead of returning boilerplate advice.
+
+    Each signal line now also renders its `goal_id` (Signal.goal_id), and
+    the prompt explicitly tells the LLM to use it to reason about that
+    ONE goal's progress. This is what makes the prompt safe to call from
+    the per-goal recommendation endpoint, which only passes signals that
+    share a single goal_id.
     """
     goal_lines = (
         "\n".join(
@@ -108,7 +114,8 @@ def _build_prompt(goals: list[Goal], signals: list[Signal]) -> str:
 
     signal_lines = (
         "\n".join(
-            f"- id={s.id} stream={s.stream} event_type={s.event_type} source={s.source}"
+            f"- id={s.id} stream={s.stream} event_type={s.event_type} "
+            f"source={s.source} goal_id={s.goal_id}"
             for s in signals
         )
         or "(no signals yet)"
@@ -126,6 +133,12 @@ User's current goals:
 
 User's recent activity signals:
 {signal_lines}
+
+Analyze the recent activity signals. If the signals indicate the current
+SMILE phase objectives are met, recommend advancing the goal to the next
+phase. Each signal's `goal_id` field shows which specific goal it is
+evidence for — use that to reason about that ONE goal's progress rather
+than about the user's overall portfolio.
 
 Task: Recommend up to 5 concrete next actions for this user. Every action
 MUST be grounded in a SPECIFIC goal or signal listed above (reference its
