@@ -11,21 +11,22 @@
 ## Table of Contents
 
 1. [What This Project Does](#1-what-this-project-does)
-2. [Prerequisites](#2-prerequisites)
-3. [Quick Start — Local Dev](#3-quick-start--local-dev)
-4. [Environment Variables](#4-environment-variables)
-5. [SMILE Methodology](#5-smile-methodology)
-6. [Phase 1 — Strategy & Architecture](#6-phase-1--strategy--architecture)
-7. [Phase 2 — Goal / Intent Registry (Module 1)](#7-phase-2--goal--intent-registry-module-1)
-8. [Phase 3 — Activity Signals (Module 2)](#8-phase-3--activity-signals-module-2)
-9. [Phase 4 — Recommendation Engine (Module 3)](#9-phase-4--recommendation-engine-module-3)
-10. [Phase 5 — QA, Integration & Polish](#10-phase-5--qa-integration--polish)
-11. [API Reference — Full Endpoint List](#11-api-reference--full-endpoint-list)
-12. [Database Schema](#12-database-schema)
-13. [Testing](#13-testing)
-14. [Project Structure](#14-project-structure)
-15. [Team & Ownership](#15-team--ownership)
-16. [Next Steps & Improvements](#16-next-steps--improvements)
+2. [System Architecture — Goals × Signals × Recommendations](#2-system-architecture--goals--signals--recommendations)
+3. [Prerequisites](#3-prerequisites)
+4. [Quick Start — Local Dev](#4-quick-start--local-dev)
+5. [Environment Variables](#5-environment-variables)
+6. [SMILE Methodology](#6-smile-methodology)
+7. [Phase 1 — Strategy & Architecture](#7-phase-1--strategy--architecture)
+8. [Phase 2 — Goal / Intent Registry (Module 1)](#8-phase-2--goal--intent-registry-module-1)
+9. [Phase 3 — Activity Signals (Module 2)](#9-phase-3--activity-signals-module-2)
+10. [Phase 4 — Recommendation Engine (Module 3)](#10-phase-4--recommendation-engine-module-3)
+11. [Phase 5 — QA, Integration & Polish](#11-phase-5--qa-integration--polish)
+12. [API Reference — Full Endpoint List](#12-api-reference--full-endpoint-list)
+13. [Database Schema](#13-database-schema)
+14. [Testing](#14-testing)
+15. [Project Structure](#15-project-structure)
+16. [Team & Ownership](#16-team--ownership)
+17. [Next Steps & Improvements](#17-next-steps--improvements)
 
 ---
 
@@ -41,7 +42,186 @@ The LPI Platform is a backend API that helps users track and advance their perso
 
 ---
 
-## 2. Prerequisites
+## 2. System Architecture — Goals × Signals × Recommendations
+
+This section documents exactly how the three core modules connect to each other end-to-end.
+
+### High-level data flow
+
+```
+User / Frontend / External Source (Boardy, GitHub)
+        │
+        │  HTTP requests with Supabase JWT
+        ▼
+┌─────────────────────────────────────────────────────────┐
+│                    FastAPI Application                   │
+│                                                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │  Module 1    │  │  Module 2    │  │  Module 3    │  │
+│  │   Goals      │  │   Signals    │  │  Recommendations│
+│  │ /api/v1/goals│  │/api/v1/signals│ │/api/v1/recs  │  │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  │
+│         │                 │                  │          │
+│         └─────────────────┴──────────────────┘          │
+│                           │                             │
+│                    store.py  (single DB layer)          │
+└───────────────────────────┬─────────────────────────────┘
+                            │
+                            ▼
+                    Supabase (PostgreSQL)
+              goals │ activity_signals │ recommendation_feedback
+              goal_phase_transitions  │  user_activity_logs
+```
+
+---
+
+### How Goals feed into Recommendations
+
+1. User creates a goal via `POST /api/v1/goals/`
+2. Goal is stored in Supabase `goals` table with a `smile_phase` and `priority`
+3. When recommendations are requested, `store.list_goals(user_id)` fetches the user's goals
+4. `scoring.score_goal(goal)` computes a priority score: `(priority × 0.5) + (phase_weight × 0.3) + (urgency × 0.2)`
+5. Each goal produces one recommendation: **advance it to the next SMILE phase**
+6. The goal's UUID appears in the recommendation's `source_goals` list — full traceability
+
+```
+Goal: "Ship dashboard"  phase=concurrent-engineering  priority=8  urgency=True
+          │
+          ▼  score_goal() → 4.80
+          │
+Recommendation: "Advance 'Ship dashboard' to collective-intelligence"
+  smile_phase: collective-intelligence
+  priority: 4.80
+  source_goals: ["<goal-uuid>"]
+```
+
+---
+
+### How Signals feed into Recommendations
+
+1. External source (GitHub webhook, Boardy webhook, manual POST) sends event to `POST /api/v1/signals/`
+2. Signal is stored in Supabase `activity_signals` table with `stream`, `event_type`, `payload`, `source`
+3. When recommendations are requested, `store.list_signals(user_id, limit=20)` fetches the 20 most recent signals
+4. All signals are aggregated into one recommendation targeting `collective-intelligence` phase
+5. Each signal's UUID appears in the recommendation's `source_signals` list
+
+```
+Signal: stream=boardy  event_type=match_created  source=boardy_webhook
+          │
+          ▼  _signal_recommendation()
+          │
+Recommendation: "Review your 1 recent activity signal(s) and link them to a goal"
+  smile_phase: collective-intelligence
+  priority: 2.80
+  source_signals: ["<signal-uuid>"]
+```
+
+---
+
+### How the Recommendation Pipeline works end-to-end
+
+```
+POST /api/v1/recommendations/{user_id}/run
+                │
+                ▼
+        agent_pipeline.run_pipeline(user_id, n_cards=3)
+                │
+    ┌───────────▼───────────┐
+    │  Node 1: fetch        │  store.list_goals(user_id)
+    │                       │  store.list_signals(user_id, limit=20)
+    └───────────┬───────────┘
+                │
+    ┌───────────▼───────────┐
+    │  Node 2: classify     │  no data?  → cold_start
+    │                       │  has data? → llm
+    │                       │  DB error? → fallback
+    └───────────┬───────────┘
+                │
+        ┌───────┴────────┐
+        │                │
+   [llm path]     [cold_start / fallback path]
+        │                │
+┌───────▼───────┐  ┌─────▼──────────────────┐
+│ Node 3: reason│  │ Node 6: fallback        │
+│ LangGraph LLM │  │ build_cold_start_recs() │
+│ Groq/Anthropic│  │ Always 3 hardcoded cards│
+└───────┬───────┘  └─────┬──────────────────┘
+        │                │
+┌───────▼───────┐        │
+│ Node 4:       │        │
+│ validate      │        │
+│ retry once if │        │
+│ LLM output bad│        │
+└───────┬───────┘        │
+        │                │
+┌───────▼───────┐        │
+│ Node 5: enrich│        │
+│ Goals+Signals │        │
+│ → Rec objects │        │
+└───────┬───────┘        │
+        │                │
+        └────────┬────────┘
+                 │
+    ┌────────────▼────────────┐
+    │  Node 7: finalise       │
+    │  deduplicate            │
+    │  sort by priority DESC  │
+    │  pad to 3 if needed     │
+    │  slice to 3             │
+    └────────────┬────────────┘
+                 │
+                 ▼
+        list[Recommendation]  ← always exactly 3
+```
+
+**Key guarantee:** `run_pipeline()` never raises and always returns exactly 3 `Recommendation` objects, regardless of:
+- LLM API key missing or rate limited
+- Database unreachable
+- User has zero goals and zero signals
+- LLM returns malformed JSON (retried once, then deterministic fallback)
+
+---
+
+### Three-tier fallback cascade
+
+The engine has three layers — each is a safety net for the one above:
+
+| Tier | When it fires | Output |
+|------|--------------|--------|
+| **Tier 1 — LLM reasoning** | User has goals/signals AND LLM is available | Real AI-generated actions referencing specific goals/signals by ID |
+| **Tier 2 — Deterministic engine** | LLM unavailable or returned bad JSON | Template-based but real-data-driven: advances each goal one SMILE phase, aggregates signals |
+| **Tier 3 — Cold start** | No goals, no signals, or DB unreachable | 3 hardcoded SMILE-grounded starter cards |
+
+---
+
+### Full integration trace — one request end-to-end
+
+```
+1. User logs in via Supabase Auth → gets JWT
+2. User creates goal: POST /api/v1/goals/
+   → stored in goals table (user_id from JWT)
+   → logged in user_activity_logs (action=goal_created)
+3. GitHub merges a PR → webhook fires → POST /api/v1/webhooks/github
+   → parsed as event_type=pr_merged
+   → stored in activity_signals (stream=lpi, source=github_webhook)
+   → logged in user_activity_logs (action=signal_ingested)
+4. Frontend calls POST /api/v1/recommendations/{user_id}/run
+   → fetch node: loads goal + signal from Supabase
+   → classify: has data → llm path
+   → reason: LangGraph builds prompt with goal + signal details, calls Groq
+   → validate: LLM output references real goal UUID → valid
+   → enrich: converts to Recommendation objects
+              goal → advance to next SMILE phase, priority from score_goal()
+              signal → collective-intelligence phase, priority 2.80
+   → finalise: sorts by priority, pads to 3, returns
+5. Frontend renders 3 recommendation cards
+6. User clicks "Accept" on card → POST /api/v1/recommendations/{user_id}/feedback
+   → stored in recommendation_feedback table
+```
+
+---
+
+## 3. Prerequisites
 
 | Tool | Version | Install |
 |------|---------|---------|
@@ -53,7 +233,7 @@ The LPI Platform is a backend API that helps users track and advance their perso
 
 ---
 
-## 3. Quick Start — Local Dev
+## 4. Quick Start — Local Dev
 
 ### Step 1 — Clone & install
 
@@ -118,7 +298,7 @@ make clean     # remove __pycache__ dirs
 
 ---
 
-## 4. Environment Variables
+## 5. Environment Variables
 
 Copy `.env.example` to `.env` and fill in the values.
 
@@ -145,7 +325,7 @@ cp .env.example .env
 
 ---
 
-## 5. SMILE Methodology
+## 6. SMILE Methodology
 
 **Full name:** Sustainable Methodology for Impact Lifecycle Enablement  
 **Author:** Nicolas Waern, WINNIIO / LifeAtlas  
@@ -195,7 +375,7 @@ score = (priority × 0.5) + (phase_weight × 0.3) + (urgency_flag × 0.2)
 
 ---
 
-## 6. Phase 1 — Strategy & Architecture
+## 7. Phase 1 — Strategy & Architecture
 
 **Timeline:** Week 1  
 **Team deliverables:**
@@ -208,7 +388,7 @@ score = (priority × 0.5) + (phase_weight × 0.3) + (urgency_flag × 0.2)
 
 ---
 
-## 7. Phase 2 — Goal / Intent Registry (Module 1)
+## 8. Phase 2 — Goal / Intent Registry (Module 1)
 
 **Timeline:** Week 2  
 **Owner:** Adil Islam · **QA:** Daksh Garg
@@ -694,6 +874,6 @@ lpi-platform/
 - [ ] Add real-time signal streaming via Supabase Realtime for the frontend timeline
 
 ---
-**Updated by Adil**
+**Updated by TEAM LPI**
 
-*LPI Platform — Winniio Amity 2026 Internship · Demo Day: June 27, 2026*
+*LPI Platform — Winniio Amity 2026 Internship · Demo Day: June 26, 2026*
