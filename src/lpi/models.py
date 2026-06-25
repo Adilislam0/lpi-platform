@@ -165,7 +165,7 @@ class SignalCreate(BaseModel):
     # 2. Callers who don't care about provenance don't have to send it.
     # 3. The GitHub ingestion script can explicitly set 'github_api'.
     source: str = "api"
-
+    goal_id: str | None = None
 
 class Signal(SignalCreate):
     """Full signal object — inherits SignalCreate fields + server-assigned ones.
