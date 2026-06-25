@@ -58,6 +58,7 @@ NOTE: the user_activity_logs CHECK constraint originally only allowed
 """
 
 import uuid
+import httpx
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -293,3 +294,83 @@ def get_signal(
         )
 
     return signal
+# ── Phase 4: Dynamic GitHub Integration (Aditi) ──────────────────────────────
+
+@router.post(
+    "/sync-github/{goal_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Dynamically sync GitHub events to a goal",
+    description="Polls the public GitHub REST API for a specific repo and ingests recent commits/PRs linked to a goal."
+)
+async def sync_github_events(
+    goal_id: str,
+    repo_name: str = Query(..., description="Target GitHub Repo (e.g. facebook/react or langchain-ai/langchain)"),
+    user_id: str = Depends(get_current_user),
+):
+    """
+    Fetch live events from GitHub and ingest them as signals linked to a goal.
+    """
+    url = f"https://api.github.com/repos/{repo_name}/events"
+
+    # 1. Fetch live data from GitHub
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to fetch events from GitHub for repo: {repo_name}. Check if the repo is public and spelled correctly."
+        )
+
+    raw_events = response.json()
+    ingested_count = 0
+
+    # 2. Parse and Filter High-Value Events (Limit to 20 to protect LLM context window)
+    for event in raw_events[:20]:
+        event_type = event.get("type")
+
+        # We only care about code changes and PRs for SMILE phase progression
+        if event_type in ["PushEvent", "PullRequestEvent"]:
+            
+            # Build the creation schema, now including the goal_id
+            signal_create = SignalCreate(
+                stream="github",
+                event_type=event_type,
+                source=repo_name,
+                payload=event,
+                goal_id=goal_id  # Linking the signal to the specific goal!
+            )
+
+            # Build the full Signal object (mirroring the logic in ingest_signal)
+            now = datetime.now(UTC)
+            new_signal = Signal(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                timestamp=now,
+                **signal_create.model_dump()
+            )
+
+            # 3. Ingest into the Database
+            store.insert_signal(new_signal)
+            
+            # Log the activity
+            log_user_activity(
+                user_id=user_id,
+                action="github_signal_synced",
+                resource_id=new_signal.id,
+                metadata={
+                    "repo": repo_name,
+                    "event_type": event_type,
+                    "goal_id": goal_id
+                },
+            )
+            
+            ingested_count += 1
+
+    return {
+        "status": "success",
+        "fetched_total": len(raw_events),
+        "ingested_high_value": ingested_count,
+        "repo": repo_name,
+        "goal_id": goal_id
+    }
