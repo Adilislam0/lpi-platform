@@ -4,12 +4,12 @@ from datetime import UTC, datetime
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from lpi import store
-from lpi.models import Signal, SignalCreate
 from lpi.middleware.auth import get_current_user
+from lpi.models import Signal, SignalCreate
 
 load_dotenv()
 
