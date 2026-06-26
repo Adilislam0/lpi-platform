@@ -15,7 +15,7 @@ async def github_webhook_receiver(request: Request):
     payload = await request.json()
     event_type = request.headers.get("X-GitHub-Event")
 
-    signal_data = None
+    signal_data: dict[str, Any] | None = None
 
     # 1. Catch Merged PRs
     if (
