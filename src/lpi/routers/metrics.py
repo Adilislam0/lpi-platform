@@ -181,6 +181,8 @@ def _is_forward_transition(from_phase: str | None, to_phase: str | None) -> bool
     False rather than raising, since this is a read-only aggregation pass
     over an audit log, not request validation.
     """
+    if from_phase is None or to_phase is None:
+        return False
     try:
         from_idx = PHASE_ORDER.index(SmilePhase(from_phase))
         to_idx = PHASE_ORDER.index(SmilePhase(to_phase))
