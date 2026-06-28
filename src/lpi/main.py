@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from lpi.middleware import register_middleware
 from lpi.routers import github_auth, goals, me, metrics, recommendations, signals, users, webhooks
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup / shutdown hook. No-op in Phase 2.
