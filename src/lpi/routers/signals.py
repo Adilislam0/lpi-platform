@@ -67,6 +67,7 @@ from lpi import store
 from lpi.middleware.auth import UserContext, get_current_user, get_current_user_context
 from lpi.models import Signal, SignalCreate
 from lpi.utils.logging import log_user_activity
+from lpi.notifications import create_notification_if_new
 
 router = APIRouter()
 
@@ -368,8 +369,13 @@ async def sync_github_events(
 
             # Build the full Signal object (mirroring the logic in ingest_signal)
             now = datetime.now(UTC)
+            
+            # --- FIX 1: Deterministic UUID for Deduplication ---
+            github_event_id = str(event.get("id"))
+            consistent_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, github_event_id))
+            
             new_signal = Signal(
-                id=str(uuid.uuid4()),
+                id=consistent_id,  # <- The database will now recognize duplicates!
                 user_id=user_id,
                 timestamp=now,
                 **signal_create.model_dump()
@@ -377,6 +383,14 @@ async def sync_github_events(
 
             # 3. Ingest into the Database
             store.insert_signal(new_signal)
+            
+            # --- FIX 2: Trigger the notification service ---
+            create_notification_if_new(
+                user_id=user_id,
+                signal_id=new_signal.id,
+                event_type=event_type,
+                payload=new_signal.payload or {},
+            )
             
             # Log the activity
             log_user_activity(

@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_client_secret: str = ""
     admin_user_ids: str = ""
+    smtp_server: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_pass: str = ""
 
     @property
     def admin_ids_list(self) -> list[str]:
@@ -33,6 +37,9 @@ class Settings(BaseSettings):
         "supabase_jwt_secret",
         "anthropic_api_key",
         "groq_api_key",
+        "smtp_server",
+        "smtp_user",
+        "smtp_pass",
         mode="before",
     )
     @classmethod
