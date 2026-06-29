@@ -202,6 +202,38 @@ def _is_forward_transition(from_phase: str | None, to_phase: str | None) -> bool
         "which team members have gone quiet."
     ),
 )
+def _parse_utc_timestamp(value: str | None) -> datetime | None:
+    """Parse an ISO8601 timestamp string from a raw Supabase row into a
+    timezone-AWARE datetime — never naive.
+
+    WHY THIS EXISTS (PR review — Daksh)
+    ─────────────────────────────────────
+    utils/logging.py::log_transition() always writes transitioned_at via
+    datetime.now(UTC).isoformat(), and the column is TIMESTAMPTZ (see
+    supabase/migrations/20260605000000_create_goal_phase_transitions.sql) —
+    PostgREST always serialises timestamptz columns back out with an
+    explicit UTC offset, so in practice this string is never naive today.
+
+    Still, Pass 3 below is the one place in this file doing our own
+    fromisoformat() on a raw string (signals/goals arrive as already-
+    validated Signal/Goal Pydantic objects — this table has no model layer
+    in between). Relying on an unenforced assumption about a third-party
+    library's serialisation format is fragile: if it were ever violated,
+    mixing a naive datetime into the same `>` comparison as the timezone-
+    aware signal/goal timestamps in bump_last_active() raises
+    `TypeError: can't compare offset-naive and offset-aware datetimes` and
+    500s this endpoint. This makes the "treat as UTC" assumption explicit
+    and crash-proof instead of implicit and silent.
+    """
+    if not value:
+        return None
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        # No offset in the string — the only convention this codebase
+        # writes timestamps in is UTC (datetime.now(UTC) everywhere), so
+        # that's the safe assumption rather than guessing local time.
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
 def get_team_metrics(
     inactive_threshold_days: int = Query(
         default=3,
@@ -263,9 +295,8 @@ def get_team_metrics(
         stats = user_stats[uid]
         if _is_forward_transition(t.get("from_phase"), t.get("to_phase")):
             stats.goal_advances += 1
-        transitioned_at = t.get("transitioned_at")
-        if transitioned_at:
-            stats.bump_last_active(datetime.fromisoformat(transitioned_at))
+            stats.bump_last_active(_parse_utc_timestamp(t.get("transitioned_at")))
+
 
     # ── Classify active/inactive + build the public response models ──────
     per_user_velocity: dict[str, UserVelocity] = {}

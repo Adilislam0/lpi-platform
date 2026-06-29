@@ -290,3 +290,39 @@ class TestPaginationBoundary:
 
         data = admin_client.get("/api/v1/metrics/team").json()
         assert data["team_summary"]["total_signals"] == 7
+
+class TestParseUtcTimestamp:
+    """Direct unit tests for metrics.py::_parse_utc_timestamp() — added in
+    response to PR review point 3 (Daksh).
+
+    NOTE: a real Supabase round-trip can't actually produce a naive string
+    here — transitioned_at is TIMESTAMPTZ and PostgREST always serialises
+    timestamptz columns with an explicit offset on read (verified against
+    supabase/migrations/20260605000000_create_goal_phase_transitions.sql).
+    That's why this is a direct unit test of the helper, not an
+    integration test through the API — an integration test would pass
+    even without the fix and wouldn't prove anything.
+    """
+
+    def test_returns_none_for_empty_input(self) -> None:
+        assert metrics_module._parse_utc_timestamp(None) is None
+        assert metrics_module._parse_utc_timestamp("") is None
+
+    def test_passes_through_an_already_aware_string(self) -> None:
+        result = metrics_module._parse_utc_timestamp("2026-06-20T10:00:00+00:00")
+        assert result is not None
+        assert result.tzinfo is not None
+
+    def test_coerces_a_naive_string_to_utc_instead_of_crashing(self) -> None:
+        """The exact scenario Daksh's review flagged: a transitioned_at
+        string with no offset must not raise when later compared against
+        a timezone-aware datetime (e.g. a Signal.timestamp) elsewhere in
+        the aggregation pass.
+        """
+        result = metrics_module._parse_utc_timestamp("2026-06-20T10:00:00")
+        assert result is not None
+        assert result.tzinfo is not None  # would be None pre-fix — that's the bug
+
+        # Confirm the comparison that would TypeError pre-fix now works
+        aware_now = datetime.now(UTC)
+        assert result < aware_now
