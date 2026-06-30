@@ -74,9 +74,9 @@ router = APIRouter()
 def _generate_explanation(event_type: str, payload: dict) -> str:
     """Generates a rule-based explanation for signals."""
     if event_type == "commit_pushed":
-        return "You're actively pushing code, which is the core of the reality-emulation phase. Keep iterating!"
+        return "You're actively pushing code. Keep iterating!"
     if event_type == "pr_merged":
-        return "Merging a PR is a significant milestone that moves your goal forward toward concurrent-engineering."
+        return "Merging a PR is a significant milestone that moves your goal forward toward next phase."
     return "Your project is showing activity—every small update contributes to your long-term goals."
 
 # ── Wave 2: POST /api/v1/signals/ ────────────────────────────────────────────
@@ -410,19 +410,10 @@ async def sync_github_events(
            # --- FIX 2: Trigger the notification service ---
             if event_type == "PushEvent":
                 notif_type = "commit_pushed"
-                
-                # We extract specifically from the flat event object
-                raw_branch = event.get("ref", "main")
-                clean_branch = raw_branch.replace("refs/heads/", "")
-                
                 notif_payload = {
                     "repo": repo_name,
-                    "branch": clean_branch,
-                    "commit_count": str(event.get("commit_count", "0")),
-                    "last_commit_message": event.get("actor", "a contributor") + " pushed new changes",
-                    "explanation": "You're actively pushing code. Keep iterating!"
+                    "explanation": "Your project is showing activity—every small update contributes to your long-term goals."
                 }
-                
             elif event_type == "PullRequestEvent":
                 notif_type = "pr_merged" 
                 gh_payload = event.get("payload", {})
