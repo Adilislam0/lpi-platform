@@ -191,17 +191,6 @@ def _is_forward_transition(from_phase: str | None, to_phase: str | None) -> bool
     return to_idx > from_idx
 
 
-@router.get(
-    "/team",
-    response_model=TeamMetrics,
-    summary="Team-wide engineering velocity and inactivity metrics",
-    description=(
-        "Admin-only. Aggregates activity_signals, goals, and "
-        "goal_phase_transitions into a team velocity dashboard: total/"
-        "per-user signal counts, PR merges, commits, goal advances, and "
-        "which team members have gone quiet."
-    ),
-)
 def _parse_utc_timestamp(value: str | None) -> datetime | None:
     """Parse an ISO8601 timestamp string from a raw Supabase row into a
     timezone-AWARE datetime — never naive.
@@ -234,6 +223,19 @@ def _parse_utc_timestamp(value: str | None) -> datetime | None:
         # that's the safe assumption rather than guessing local time.
         parsed = parsed.replace(tzinfo=UTC)
     return parsed
+
+
+@router.get(
+    "/team",
+    response_model=TeamMetrics,
+    summary="Team-wide engineering velocity and inactivity metrics",
+    description=(
+        "Admin-only. Aggregates activity_signals, goals, and "
+        "goal_phase_transitions into a team velocity dashboard: total/"
+        "per-user signal counts, PR merges, commits, goal advances, and "
+        "which team members have gone quiet."
+    ),
+)
 def get_team_metrics(
     inactive_threshold_days: int = Query(
         default=3,
@@ -295,7 +297,7 @@ def get_team_metrics(
         stats = user_stats[uid]
         if _is_forward_transition(t.get("from_phase"), t.get("to_phase")):
             stats.goal_advances += 1
-            stats.bump_last_active(_parse_utc_timestamp(t.get("transitioned_at")))
+        stats.bump_last_active(_parse_utc_timestamp(t.get("transitioned_at")))
 
 
     # ── Classify active/inactive + build the public response models ──────
