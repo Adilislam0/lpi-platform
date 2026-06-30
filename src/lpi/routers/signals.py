@@ -413,7 +413,7 @@ async def sync_github_events(
                 
                 # 1. Branch: Look in 'ref', fallback to payload ref
                 branch_name = event.get("ref") or payload_data.get("ref", "main")
-                branch_name = bsranch_name.replace("refs/heads/", "")
+                branch_name = branch_name.replace("refs/heads/", "")
                 
                 # 2. Commit Count: Use the field that exists
                 commit_count = payload_data.get("commit_count", 0)
