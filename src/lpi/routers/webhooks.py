@@ -6,8 +6,8 @@ from fastapi import APIRouter, Request, status
 
 from lpi import store
 from lpi.models import Signal
-from lpi.routers.github_auth import repo_db
 from lpi.notifications import create_notification_if_new
+from lpi.routers.github_auth import repo_db
 
 router = APIRouter()
 

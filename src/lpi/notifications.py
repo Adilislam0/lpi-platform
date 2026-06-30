@@ -3,7 +3,9 @@ import os
 import smtplib
 from collections import defaultdict
 from email.message import EmailMessage
+
 from dotenv import load_dotenv
+
 from lpi.store import _get_client, get_user_email
 
 load_dotenv()
@@ -45,7 +47,8 @@ def _dispatch_email(target_email: str, title: str, body: str) -> None:
 
 def create_notification_if_new(user_id: str, signal_id: str, event_type: str, payload: dict) -> bool:
     template = _NOTIF_TEMPLATES.get(event_type)
-    if not template: return False
+    if not template: 
+        return False
 
     title_tmpl, body_tmpl = template
     safe_payload = defaultdict(lambda: "[N/A]", payload)
@@ -69,7 +72,8 @@ def create_notification_if_new(user_id: str, signal_id: str, event_type: str, pa
             "body":     body,
         }).execute()
     except Exception as e:
-        if "unique" in str(e).lower(): return False
+        if "unique" in str(e).lower(): 
+            return False
         logger.exception(f"Failed to record notification: {signal_id}")
         return False
 

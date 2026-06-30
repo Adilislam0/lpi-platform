@@ -1,5 +1,4 @@
 from datetime import date
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -11,10 +10,10 @@ router = APIRouter()
 
 # 1. Define the expected payload from the frontend
 class ProfileUpdate(BaseModel):
-    name: Optional[str] = None
-    gender: Optional[str] = None
-    dob: Optional[date] = None
-    bio: Optional[str] = None
+    name: str | None = None
+    gender: str | None = None
+    dob: date | None = None
+    bio: str | None = None
 
 # 2. Existing GET route
 @router.get("/", response_model=UserContext)
