@@ -327,6 +327,28 @@ def get_signal(signal_id: str) -> Signal | None:
         return None
     return Signal(**cast(dict, result.data[0]))
 
+def get_user_email(user_id: str) -> str | None:
+    """Fetch a user's email address for notifications."""
+    try:
+        result = _get_client().table("users").select("email").eq("id", user_id).execute()
+        if result.data and len(result.data) > 0:
+            return result.data[0].get("email")
+        return None
+    except Exception as e:
+        print(f"Error fetching email for user {user_id}: {e}")
+        return None
+
+def update_user_profile(user_id: str, updates: dict) -> dict | None:
+    """Updates a user's profile information in the public.users table."""
+    try:
+        result = _get_client().table("users").update(updates).eq("id", user_id).execute()
+        if result.data:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"Error updating profile for user {user_id}: {e}")
+        return None
+
 
 # ── Audit log verification (new — used by tests, also useful for admin tooling) ─
 
