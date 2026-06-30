@@ -187,10 +187,10 @@ def get_signal_by_github_id(github_event_id: str) -> Signal | None:
     client = _get_client()
     res1 = client.table("activity_signals").select("*").eq("payload->>github_event_id", github_event_id).execute()
     if res1.data:
-        return Signal(**res1.data[0])
+        return Signal(**cast(dict, res1.data[0]))
     res2 = client.table("activity_signals").select("*").eq("payload->>id", github_event_id).execute()
     if res2.data:
-        return Signal(**res2.data[0])
+        return Signal(**cast(dict, res2.data[0]))
     return None
 
 
