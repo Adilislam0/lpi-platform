@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request, status
 from lpi import store
 from lpi.models import Signal
 from lpi.routers.github_auth import repo_db
+from lpi.notifications import create_notification_if_new
 
 router = APIRouter()
 
@@ -88,5 +89,12 @@ async def github_webhook_receiver(request: Request):
         )
         store.insert_signal(signal)
         print(f"✅ AUTOMATIC DETECTION: Saved {signal_data['event_type']} for user {user_id} and goal {target_goal_id}!")
+
+        create_notification_if_new(
+            user_id=user_id,
+            signal_id=signal.id,
+            event_type=signal.event_type,
+            payload=signal.payload or {},
+        )
 
     return {"status": "success"}
