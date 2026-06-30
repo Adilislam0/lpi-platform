@@ -222,7 +222,7 @@ async def auto_register_webhook(request: TrackRepoRequest):
                     # Deduplicate: check if this event was already ingested
                     github_event_id = event.get("id")
                     if github_event_id:
-                        existing = store.get_signal_by_github_id(str(github_event_id))
+                        existing = store.get_signal_by_github_id(str(github_event_id), request.user_id)
                         if existing:
                             if target_goal_id and existing.goal_id is None:
                                 existing.goal_id = target_goal_id

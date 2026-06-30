@@ -182,13 +182,13 @@ def insert_signal(signal: Signal) -> Signal:
     return signal
 
 
-def get_signal_by_github_id(github_event_id: str) -> Signal | None:
-    """Fetch an existing signal matching the given github_event_id (inside payload or payload.github_event_id)"""
+def get_signal_by_github_id(github_event_id: str, user_id: str) -> Signal | None:
+    """Fetch an existing signal matching the given github_event_id and scoped to the user_id"""
     client = _get_client()
-    res1 = client.table("activity_signals").select("*").eq("payload->>github_event_id", github_event_id).execute()
+    res1 = client.table("activity_signals").select("*").eq("user_id", user_id).eq("payload->>github_event_id", github_event_id).execute()
     if res1.data:
         return Signal(**cast(dict, res1.data[0]))
-    res2 = client.table("activity_signals").select("*").eq("payload->>id", github_event_id).execute()
+    res2 = client.table("activity_signals").select("*").eq("user_id", user_id).eq("payload->>id", github_event_id).execute()
     if res2.data:
         return Signal(**cast(dict, res2.data[0]))
     return None

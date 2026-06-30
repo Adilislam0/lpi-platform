@@ -120,7 +120,7 @@ def ingest_signal(
     if isinstance(signal.payload, dict):
         github_event_id = signal.payload.get("github_event_id") or signal.payload.get("id")
         if github_event_id:
-            existing = store.get_signal_by_github_id(str(github_event_id))
+            existing = store.get_signal_by_github_id(str(github_event_id), user_id)
             if existing:
                 return existing
 
@@ -367,7 +367,7 @@ async def sync_github_events(
             # Deduplicate check: if this event was already ingested (either raw or flattened), skip it!
             github_event_id = event.get("id")
             if github_event_id:
-                existing = store.get_signal_by_github_id(str(github_event_id))
+                existing = store.get_signal_by_github_id(str(github_event_id), user_id)
                 if existing:
                     # If the existing signal is not linked to this goal yet, link it!
                     if existing.goal_id is None:
