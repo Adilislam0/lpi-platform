@@ -408,22 +408,18 @@ async def sync_github_events(
             store.insert_signal(new_signal)
             
            # --- FIX 2: Trigger the notification service ---
-            notif_payload = {"repo": repo_name}
-            notif_type = event_type # Default fallback
-
             if event_type == "PushEvent":
                 notif_type = "commit_pushed"
                 
-                # Access the flat structure
-                branch_name = event.get("ref", "main").replace("refs/heads/", "")
-                commit_count = event.get("commit_count", 0)
-                latest_msg = "New code pushed by " + event.get("actor", "a contributor")
-
+                # We extract specifically from the flat event object
+                raw_branch = event.get("ref", "main")
+                clean_branch = raw_branch.replace("refs/heads/", "")
+                
                 notif_payload = {
                     "repo": repo_name,
-                    "branch": branch_name,
-                    "commit_count": commit_count,
-                    "last_commit_message": latest_msg,
+                    "branch": clean_branch,
+                    "commit_count": str(event.get("commit_count", "0")),
+                    "last_commit_message": event.get("actor", "a contributor") + " pushed new changes",
                     "explanation": "You're actively pushing code. Keep iterating!"
                 }
                 
