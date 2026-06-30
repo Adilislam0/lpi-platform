@@ -61,7 +61,7 @@ import uuid
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from lpi import store
 from lpi.middleware.auth import UserContext, get_current_user, get_current_user_context
@@ -399,3 +399,103 @@ async def sync_github_events(
         "repo": repo_name,
         "goal_id": goal_id
     }
+
+
+# ── ZeroClaw Webhook Receiver ─────────────────────────────────────────────────
+
+
+@router.post(
+    "/zeroclaw",
+    status_code=status.HTTP_200_OK,
+    summary="Receive ZeroClaw security scanner webhook",
+    description=(
+        "Accepts HMAC-SHA256 signed POST requests from the ZeroClaw CLI. "
+        "Verifies signature, normalizes the payload into LPI Signal schema, "
+        "and persists to Supabase. No JWT required — auth is the shared secret. "
+        "Returns {status: success} on both new signals and duplicate replays "
+        "so ZeroClaw CLI does not retry unnecessarily."
+    ),
+)
+async def receive_zeroclaw_webhook(request: Request) -> dict:
+    """Ingest a ZeroClaw security scan event as an LPI activity signal.
+
+    Flow:
+        1. Verify HMAC-SHA256 signature (401 if wrong/missing)
+        2. Parse JSON body
+        3. Normalize ZeroClaw payload → LPI Signal fields
+        4. Build Signal object with stream="zeroclaw", source="zeroclaw_webhook"
+        5. Persist via store.insert_signal() — UNIQUE constraint handles dedup
+        6. Return {"status": "success"} — always, so ZeroClaw CLI doesn't retry
+
+    Unknown event types (e.g. "scan.unknown") are gracefully skipped with a
+    200 OK so ZeroClaw does not treat them as delivery failures.
+
+    Test with:
+        Generate secret: python -c "import secrets; print(secrets.token_hex(32))"
+        Set ZEROCLAW_WEBHOOK_SECRET=<secret> in .env
+        Run ZeroClaw CLI locally → it will POST to your ngrok URL
+        Verify: GET /api/v1/signals/?stream=zeroclaw
+    """
+    import json as _json
+
+    from lpi.utils.zeroclaw_auth import verify_zeroclaw_signature
+    from lpi.utils.zeroclaw_normalizer import ZeroClawNormalizationError, normalize
+
+    # 1. Verify HMAC-SHA256 signature — raises 401 on failure
+    body = await verify_zeroclaw_signature(request)
+
+    # 2. Parse body
+    try:
+        raw_payload = _json.loads(body)
+    except _json.JSONDecodeError as exc:
+        import logging
+        logging.getLogger(__name__).warning(
+            "ZeroClaw webhook: invalid JSON body — %s", exc
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request body is not valid JSON.",
+        ) from exc
+
+    # 3. Normalize — skip gracefully on unknown event_type
+    try:
+        normalized = normalize(raw_payload)
+    except ZeroClawNormalizationError as exc:
+        import logging
+        logging.getLogger(__name__).warning(
+            "ZeroClaw webhook: skipping unknown event — %s", exc
+        )
+        # Return 200 so ZeroClaw CLI does not retry unknown events
+        return {"status": "success", "detail": "event_type not recognised, skipped"}
+
+    # 4. Build Signal — no user_id (service-to-service, not a Supabase user)
+    #    We use a placeholder that makes it easy to filter:
+    #    GET /api/v1/signals/?stream=zeroclaw
+    new_signal = Signal(
+        id=str(uuid.uuid4()),
+        user_id="zeroclaw-service",
+        stream=normalized.stream,
+        event_type=normalized.event_type,
+        source=normalized.source,
+        payload=normalized.payload,
+        timestamp=normalized.timestamp,
+    )
+
+    # 5. Persist — UNIQUE constraint on id handles duplicate replays silently
+    try:
+        store.insert_signal(new_signal)
+    except Exception as exc:
+        err_str = str(exc).lower()
+        if "duplicate" in err_str or "unique" in err_str:
+            # Idempotent — already stored, tell ZeroClaw it's fine
+            return {"status": "success", "detail": "duplicate event, already stored"}
+        import logging
+        logging.getLogger(__name__).exception(
+            "ZeroClaw webhook: unexpected DB error for signal %s", new_signal.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to store signal.",
+        ) from exc
+
+    return {"status": "success"}

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_client_secret: str = ""
     admin_user_ids: str = ""
+    zeroclaw_webhook_secret: str = ""
 
     @property
     def admin_ids_list(self) -> list[str]:
