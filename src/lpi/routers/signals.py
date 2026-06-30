@@ -408,26 +408,28 @@ async def sync_github_events(
             if event_type == "PushEvent":
                 notif_type = "commit_pushed"
                 
-                # Extracting from the 'flat' structure shown in your logs
-                payload_data = event.get("payload", {})
+                # FIX: Access the flat structure directly as shown in your screenshot
+                # Use .get() to avoid KeyErrors
+                branch_name = event.get("ref", "main").replace("refs/heads/", "")
+                commit_count = event.get("commit_count", 0)
                 
-                # 1. Branch: Look in 'ref', fallback to payload ref
-                branch_name = event.get("ref") or payload_data.get("ref", "main")
-                branch_name = branch_name.replace("refs/heads/", "")
-                
-                # 2. Commit Count: Use the field that exists
-                commit_count = payload_data.get("commit_count", 0)
-                
-                # 3. Message: Check if it's there, else provide a placeholder
-                latest_msg = payload_data.get("last_commit_message", "New code pushed")
+                # Since the payload doesn't have a message here, provide a clear fallback
+                latest_msg = "New code pushed by " + event.get("actor", "a contributor")
 
                 notif_payload = {
                     "repo": repo_name,
                     "branch": branch_name,
                     "commit_count": commit_count,
                     "last_commit_message": latest_msg,
-                    "explanation": "You're actively pushing code, which is the core of the reality-emulation phase. Keep iterating!"
+                    "explanation": "You're actively pushing code. Keep iterating!"
                 }
+                
+                create_notification_if_new(
+                    user_id=user_id,
+                    signal_id=new_signal.id,
+                    event_type=notif_type,
+                    payload=notif_payload,
+                )
             elif event_type == "PullRequestEvent":
                 # Use 'pr_merged' to match the rich template key
                 notif_type = "pr_merged" 
