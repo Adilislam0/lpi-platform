@@ -13,9 +13,9 @@ _NOTIF_TEMPLATES = {
     "pr_merged":        ("PR Merged 🎉", "You merged PR #{pr_number}: '{title}' in {repo}.\n\n💡 Insight: {explanation}"),
     "commit_pushed":    ("New Commits 📦", "{commit_count} commit(s) pushed to {branch} in {repo}.\nLatest: {last_commit_message}\n\n💡 Insight: {explanation}"),
     "phase_advanced":   ("SMILE Phase Advanced ✨", "Goal '{title}' moved to {phase}."),
-    "inactivity_alert": ("Inactivity Detected ⚠️", "No activity detected for {days} days."),
+    "inactivity_alert": ("Inactivity Detected ⚠️", "No activity detected in {repo} for {days} days."),
     "PullRequestEvent": ("New GitHub PR 🚀", "A PR was created/updated in {repo}.\n\n💡 Insight: {explanation}"),
-    "PushEvent":        ("New GitHub Push 📤", "New commits pushed to {repo}.\n\n💡 Insight: {explanation}"),
+    "PushEvent":        ("New GitHub Push 📤", "{commit_count} commit(s) pushed to {branch} in {repo}.\nLatest: {last_commit_message}\n\n💡 Insight: {explanation}"),
 }
 
 def _dispatch_email(target_email: str, title: str, body: str) -> None:
