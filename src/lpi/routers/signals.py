@@ -408,21 +408,19 @@ async def sync_github_events(
             if event_type == "PushEvent":
                 notif_type = "commit_pushed"
                 
-                # 1. Branch: Check 'ref' directly first (for your flat payload), 
-                # then check inside 'payload' as a fallback.
-                ref = event.get("ref") or event.get("payload", {}).get("ref", "refs/heads/main")
-                branch_name = ref.replace("refs/heads/", "")
+                # Extracting from the 'flat' structure shown in your logs
+                payload_data = event.get("payload", {})
                 
-                # 2. Commits: Check 'commit_count' at the top level first
-                commit_count = event.get("commit_count") or len(event.get("payload", {}).get("commits", [])) or 0
+                # 1. Branch: Look in 'ref', fallback to payload ref
+                branch_name = event.get("ref") or payload_data.get("ref", "main")
+                branch_name = bsranch_name.replace("refs/heads/", "")
                 
-                # 3. Message: Check 'last_commit_message' at the top level first
-                latest_msg = (
-                    event.get("last_commit_message") 
-                    or (event.get("payload", {}).get("commits", [{}])[-1].get("message")) 
-                    or "No message provided"
-                )
+                # 2. Commit Count: Use the field that exists
+                commit_count = payload_data.get("commit_count", 0)
                 
+                # 3. Message: Check if it's there, else provide a placeholder
+                latest_msg = payload_data.get("last_commit_message", "New code pushed")
+
                 notif_payload = {
                     "repo": repo_name,
                     "branch": branch_name,
