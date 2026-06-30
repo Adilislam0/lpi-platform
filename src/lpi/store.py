@@ -331,8 +331,13 @@ def get_user_email(user_id: str) -> str | None:
     """Fetch a user's email address for notifications."""
     try:
         result = _get_client().table("users").select("email").eq("id", user_id).execute()
-        if result.data and len(result.data) > 0:
-            return result.data[0].get("email")
+        # Cast result.data to a list to check length safely
+        if result.data and len(cast(list, result.data)) > 0:
+            # Cast the first row to a dict before calling .get()
+            row = cast(dict, result.data[0])
+            email = row.get("email")
+            # Ensure the return type strictly matches str | None
+            return str(email) if email else None
         return None
     except Exception as e:
         print(f"Error fetching email for user {user_id}: {e}")
@@ -342,13 +347,13 @@ def update_user_profile(user_id: str, updates: dict) -> dict | None:
     """Updates a user's profile information in the public.users table."""
     try:
         result = _get_client().table("users").update(updates).eq("id", user_id).execute()
-        if result.data:
-            return result.data[0]
+        if result.data and len(cast(list, result.data)) > 0:
+            # Explicitly return a dict to satisfy the function signature
+            return cast(dict, result.data[0])
         return None
     except Exception as e:
         print(f"Error updating profile for user {user_id}: {e}")
         return None
-
 
 # ── Audit log verification (new — used by tests, also useful for admin tooling) ─
 
