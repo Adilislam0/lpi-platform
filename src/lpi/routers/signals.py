@@ -147,16 +147,22 @@ def ingest_signal(
     # utils/logging.py). Wrapping it here again would be redundant and,
     # worse, gives a false impression that THIS is where a logging failure
     # gets caught — it isn't; this call simply cannot raise.
+    # MAP THE TYPE FOR THE NOTIFICATION TEMPLATE
+    mapped_type = new_signal.event_type
+    if new_signal.event_type == "PushEvent":
+        mapped_type = "commit_pushed"
+    elif new_signal.event_type == "PullRequestEvent":
+        mapped_type = "pr_merged"
+
     create_notification_if_new(
         user_id=user_id,
         signal_id=new_signal.id,
-        event_type=new_signal.event_type,
+        event_type=mapped_type,  # Use the mapped semantic key
         payload={
             ** (new_signal.payload or {}),
             "explanation": _generate_explanation(new_signal.event_type, new_signal.payload or {})
         },
     )
-
     log_user_activity(
         user_id=user_id,
         action="signal_ingested",
@@ -408,12 +414,9 @@ async def sync_github_events(
             if event_type == "PushEvent":
                 notif_type = "commit_pushed"
                 
-                # FIX: Access the flat structure directly as shown in your screenshot
-                # Use .get() to avoid KeyErrors
+                # Access the flat structure
                 branch_name = event.get("ref", "main").replace("refs/heads/", "")
                 commit_count = event.get("commit_count", 0)
-                
-                # Since the payload doesn't have a message here, provide a clear fallback
                 latest_msg = "New code pushed by " + event.get("actor", "a contributor")
 
                 notif_payload = {
@@ -424,14 +427,7 @@ async def sync_github_events(
                     "explanation": "You're actively pushing code. Keep iterating!"
                 }
                 
-                create_notification_if_new(
-                    user_id=user_id,
-                    signal_id=new_signal.id,
-                    event_type=notif_type,
-                    payload=notif_payload,
-                )
             elif event_type == "PullRequestEvent":
-                # Use 'pr_merged' to match the rich template key
                 notif_type = "pr_merged" 
                 gh_payload = event.get("payload", {})
                 pr_data = gh_payload.get("pull_request", {})
@@ -443,11 +439,12 @@ async def sync_github_events(
                     "explanation": _generate_explanation("pr_merged", {})
                 }
 
+            # TRIGGER NOTIFICATION ONCE HERE
             try:
                 create_notification_if_new(
                     user_id=user_id,
                     signal_id=new_signal.id,
-                    event_type=notif_type, # Now correctly mapping to 'commit_pushed' or 'pr_merged'
+                    event_type=notif_type, 
                     payload=notif_payload,
                 )
             except Exception as e:

@@ -10,6 +10,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 _NOTIF_TEMPLATES = {
+    "PushEvent": ("New GitHub Push 📤", "Activity detected in {repo}.\n\n💡 Insight: {explanation}"),
     "pr_merged":        ("PR Merged 🎉", "You merged PR #{pr_number}: '{title}' in {repo}.\n\n💡 Insight: {explanation}"),
     "commit_pushed":    ("New Commits 📦", "{commit_count} commit(s) pushed to {branch} in {repo}.\nLatest: {last_commit_message}\n\n💡 Insight: {explanation}"),
     "phase_advanced":   ("SMILE Phase Advanced ✨", "Goal '{title}' moved to {phase}."),
