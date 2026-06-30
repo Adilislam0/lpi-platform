@@ -219,6 +219,16 @@ async def auto_register_webhook(request: TrackRepoRequest):
                     except Exception as e:
                         print(f"Goal lookup failed during tracking: {e}")
 
+                    # Deduplicate: check if this event was already ingested
+                    github_event_id = event.get("id")
+                    if github_event_id:
+                        existing = store.get_signal_by_github_id(str(github_event_id))
+                        if existing:
+                            if target_goal_id and existing.goal_id is None:
+                                existing.goal_id = target_goal_id
+                                store._get_client().table("activity_signals").update({"goal_id": target_goal_id}).eq("id", existing.id).execute()
+                            continue
+
                     signal_create = SignalCreate(
                         stream="github",
                         event_type=event_type,

@@ -155,8 +155,10 @@ def update_goal(goal_id: str, updates: dict) -> Goal:
 
 
 def delete_goal(goal_id: str) -> None:
-    """Delete a goal row by its UUID."""
-    _get_client().table("goals").delete().eq("id", goal_id).execute()
+    """Delete a goal row by its UUID and all its associated activity signals."""
+    client = _get_client()
+    client.table("activity_signals").delete().eq("goal_id", goal_id).execute()
+    client.table("goals").delete().eq("id", goal_id).execute()
 
 
 # ── Signals (Phase 3 — Supabase-backed) ──────────────────────────────────────
@@ -178,6 +180,18 @@ def insert_signal(signal: Signal) -> Signal:
     """
     _get_client().table("activity_signals").insert(signal.model_dump(mode="json")).execute()
     return signal
+
+
+def get_signal_by_github_id(github_event_id: str) -> Signal | None:
+    """Fetch an existing signal matching the given github_event_id (inside payload or payload.github_event_id)"""
+    client = _get_client()
+    res1 = client.table("activity_signals").select("*").eq("payload->>github_event_id", github_event_id).execute()
+    if res1.data:
+        return Signal(**res1.data[0])
+    res2 = client.table("activity_signals").select("*").eq("payload->>id", github_event_id).execute()
+    if res2.data:
+        return Signal(**res2.data[0])
+    return None
 
 
 def list_signals(
