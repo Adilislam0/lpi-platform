@@ -9,6 +9,7 @@ import { UserProfile } from "./components/UserProfile";
 import { SignalsView } from "./components/SignalsView";
 import { GithubTracker } from "./components/GithubTracker";
 import { RecommendationsView } from "./components/RecommendationsView";
+import { TeamMetricsView } from "./components/TeamMetricsView";
 import { useToast } from "./components/Toast";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
@@ -278,6 +279,12 @@ function App() {
           {isAdmin && (
             <>
               <button
+                className={`tab-btn tab-btn-alert-color ${activeTab === "team_metrics" ? "active" : ""}`}
+                onClick={() => setActiveTab("team_metrics")}
+              >
+                Admin View (Team Metrics)
+              </button>
+              <button
                 className={`tab-btn tab-btn-alert-color ${activeTab === "admin" ? "active" : ""}`}
                 onClick={() => setActiveTab("admin")}
               >
@@ -316,6 +323,8 @@ function App() {
         </div>
       ) : activeTab === "github" ? (
         <GithubTracker userId={session?.user?.id} />
+      ) : activeTab === "team_metrics" ? (
+        <TeamMetricsView userId={session?.user?.id} />
       ) : activeTab === "recommendations" ? (
         <RecommendationsView userId={session?.user?.id} onGoalCreated={fetchGoals} goals={goals} />
       ) : activeTab === "signals" || activeTab === "admin_signals" ? (

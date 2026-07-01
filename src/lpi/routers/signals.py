@@ -116,6 +116,14 @@ def ingest_signal(
         }
     """
 
+    # Deduplicate raw GitHub/API signals based on github_event_id/id in payload
+    if isinstance(signal.payload, dict):
+        github_event_id = signal.payload.get("github_event_id") or signal.payload.get("id")
+        if github_event_id:
+            existing = store.get_signal_by_github_id(str(github_event_id), user_id)
+            if existing:
+                return existing
+
     # Build the full Signal object.
     # signal.model_dump() spreads all SignalCreate fields (stream, event_type,
     # payload, source) into the Signal constructor. We add the server-assigned
@@ -356,7 +364,17 @@ async def sync_github_events(
 
         # We only care about code changes and PRs for SMILE phase progression
         if event_type in ["PushEvent", "PullRequestEvent"]:
-            
+            # Deduplicate check: if this event was already ingested (either raw or flattened), skip it!
+            github_event_id = event.get("id")
+            if github_event_id:
+                existing = store.get_signal_by_github_id(str(github_event_id), user_id)
+                if existing:
+                    # If the existing signal is not linked to this goal yet, link it!
+                    if existing.goal_id is None:
+                        existing.goal_id = goal_id
+                        store._get_client().table("activity_signals").update({"goal_id": goal_id}).eq("id", existing.id).execute()
+                    continue
+
             # Build the creation schema, now including the goal_id
             signal_create = SignalCreate(
                 stream="github",
@@ -377,6 +395,7 @@ async def sync_github_events(
 
             # 3. Ingest into the Database
             store.insert_signal(new_signal)
+            ingested_count += 1
             
             # Log the activity
             log_user_activity(
