@@ -417,6 +417,10 @@ cp .env.example .env
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Same as above; used by logging utilities |
 | `SUPABASE_JWT_SECRET` | ✅ | JWT signing secret — from `supabase status` or dashboard → Project Settings → API |
 | `GROQ_API_KEY` | ✅ | Groq API key for the LLM layer (free tier) — [console.groq.com](https://console.groq.com) |
+|`SMTP_SERVER`   | ✅ | SMTP server for notifications (e.g., smtp.gmail.com) |
+|`SMTP_PORT`   | ✅ | Port for SMTP (e.g., 587) |
+|`SMTP_USER`   | ✅ | Email address for notification dispatch |
+|`SMTP_PASS`   | ✅ | App-specific password for email account |
 | `ANTHROPIC_API_KEY` | Optional | Claude API key — alternate LLM provider |
 | `LLM_PROVIDER` | Optional | `groq` (default) or `anthropic` |
 | `LLM_MODEL` | Optional | Default: `llama-3.3-70b-versatile` (Groq) |
@@ -814,6 +818,9 @@ All migrations live in `supabase/migrations/`. Run `supabase db push` to apply t
 | `20260615000000_signals_rls_and_log_action.sql` | RLS on `activity_signals` + CHECK fix | Adil |
 | `20260621000000_create_recommendation_feedback.sql` | `recommendation_feedback` | Aryan |
 | `20260625000000_activity_signals_goal_fk.sql` | `goal_id` FK on `activity_signals` + strict goal-scoped RLS | Jaivardhan |
+| `20260627000000_create_notifications.sql` | notifications | Aditi |
+| `20260630000002_create_users.sql` | users profile table | Aditi |
+| `20260630000003_user_sync_trigger.sql` | Auth-to-Profile Sync Trigger | Aditi |
 
 ### Table overview
 
@@ -825,6 +832,8 @@ All migrations live in `supabase/migrations/`. Run `supabase db push` to apply t
 | `system_logs` | Platform-level events (`info`, `warning`, `error`) |
 | `activity_signals` | All ingested activity events from all streams |
 | `recommendation_feedback` | User accept/dismiss decisions on recommendation cards |
+| `notifications` | Audit trail of sent notifications (prevents duplicates) |
+| `users` | User authentication data + profile metadata (name, email, dob, gender, bio) |
 
 ### Useful SQL queries
 

@@ -66,10 +66,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from lpi import store
 from lpi.middleware.auth import UserContext, get_current_user, get_current_user_context
 from lpi.models import Signal, SignalCreate
-from lpi.utils.logging import log_user_activity
+from lpi.notifications import create_notification_if_new
+from lpi.utils.logging import log_user_activity, logger
 
 router = APIRouter()
 
+def _generate_explanation(event_type: str, payload: dict) -> str:
+    """Generates a rule-based explanation for signals."""
+    if event_type == "commit_pushed":
+        return "You're actively pushing code. Keep iterating!"
+    if event_type == "pr_merged":
+        return "Merging a PR is a significant milestone that moves your goal forward toward next phase."
+    return "Your project is showing activity—every small update contributes to your long-term goals."
 
 # ── Wave 2: POST /api/v1/signals/ ────────────────────────────────────────────
 
@@ -147,6 +155,22 @@ def ingest_signal(
     # utils/logging.py). Wrapping it here again would be redundant and,
     # worse, gives a false impression that THIS is where a logging failure
     # gets caught — it isn't; this call simply cannot raise.
+    # MAP THE TYPE FOR THE NOTIFICATION TEMPLATE
+    mapped_type = new_signal.event_type
+    if new_signal.event_type == "PushEvent":
+        mapped_type = "commit_pushed"
+    elif new_signal.event_type == "PullRequestEvent":
+        mapped_type = "pr_merged"
+
+    create_notification_if_new(
+        user_id=user_id,
+        signal_id=new_signal.id,
+        event_type=mapped_type,  # Use the mapped semantic key
+        payload={
+            ** (new_signal.payload or {}),
+            "explanation": _generate_explanation(new_signal.event_type, new_signal.payload or {})
+        },
+    )
     log_user_activity(
         user_id=user_id,
         action="signal_ingested",
@@ -386,8 +410,13 @@ async def sync_github_events(
 
             # Build the full Signal object (mirroring the logic in ingest_signal)
             now = datetime.now(UTC)
+            
+            # --- FIX 1: Deterministic UUID for Deduplication ---
+            github_event_id = str(event.get("id"))
+            consistent_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, github_event_id))
+            
             new_signal = Signal(
-                id=str(uuid.uuid4()),
+                id=consistent_id,  # <- The database will now recognize duplicates!
                 user_id=user_id,
                 timestamp=now,
                 **signal_create.model_dump()
@@ -397,6 +426,36 @@ async def sync_github_events(
             store.insert_signal(new_signal)
             ingested_count += 1
             
+           # --- FIX 2: Trigger the notification service ---
+            if event_type == "PushEvent":
+                notif_type = "commit_pushed"
+                notif_payload = {
+                    "repo": repo_name,
+                    "explanation": "Your project is showing activity—every small update contributes to your long-term goals."
+                }
+            elif event_type == "PullRequestEvent":
+                notif_type = "pr_merged" 
+                gh_payload = event.get("payload", {})
+                pr_data = gh_payload.get("pull_request", {})
+                
+                notif_payload = {
+                    "repo": repo_name,
+                    "pr_number": pr_data.get("number", "Unknown"),
+                    "title": pr_data.get("title", "Pull Request Updated"),
+                    "explanation": _generate_explanation("pr_merged", {})
+                }
+
+            # TRIGGER NOTIFICATION ONCE HERE
+            try:
+                create_notification_if_new(
+                    user_id=user_id,
+                    signal_id=new_signal.id,
+                    event_type=notif_type, 
+                    payload=notif_payload,
+                )
+            except Exception as e:
+                logger.error(f"Notification background task failed: {e}")
+
             # Log the activity
             log_user_activity(
                 user_id=user_id,
