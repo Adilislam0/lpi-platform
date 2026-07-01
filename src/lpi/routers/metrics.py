@@ -81,6 +81,7 @@ scope for a Saturday deadline, noted here for whoever picks it up next.
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -282,21 +283,26 @@ def get_team_metrics(
             stats.pr_merges += 1
         elif sig.event_type == "PullRequestEvent":
             if isinstance(sig.payload, dict):
-                inner_payload = sig.payload.get("payload") if isinstance(sig.payload.get("payload"), dict) else {}
+                raw_inner = sig.payload.get("payload")
+                inner_payload = cast(dict, raw_inner) if isinstance(raw_inner, dict) else {}
                 action = sig.payload.get("action") or inner_payload.get("action")
                 if action == "merged":
                     stats.pr_merges += 1
         if sig.event_type in COMMIT_EVENT_TYPES:
-            commit_count = 1
+            commit_count: int = 1
             if isinstance(sig.payload, dict):
                 if "commit_count" in sig.payload:
-                    commit_count = sig.payload.get("commit_count")
-                elif "payload" in sig.payload and isinstance(sig.payload.get("payload"), dict):
-                    inner_payload = sig.payload.get("payload")
-                    commits_list = inner_payload.get("commits")
-                    if isinstance(commits_list, list):
-                        commit_count = len(commits_list)
-            stats.commits += commit_count if isinstance(commit_count, int) else 1
+                    val = sig.payload.get("commit_count")
+                    if isinstance(val, int):
+                        commit_count = val
+                elif "payload" in sig.payload:
+                    raw_inner = sig.payload.get("payload")
+                    if isinstance(raw_inner, dict):
+                        inner_payload = cast(dict, raw_inner)
+                        commits_list = inner_payload.get("commits")
+                        if isinstance(commits_list, list):
+                            commit_count = len(commits_list)
+            stats.commits += commit_count
         stats.bump_last_active(sig.timestamp)
 
     # ── Pass 2: goals → roster membership + last_active (no signal yet) ───
