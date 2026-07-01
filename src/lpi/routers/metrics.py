@@ -108,7 +108,7 @@ _MAX_SIGNAL_PAGES = 50  # safety valve — 10,000 signals before we warn
 # Deliberately narrow: only scripts/ingest_github_events.py emits these, and
 # only AFTER filtering to genuinely merged PRs / non-empty pushes.
 PR_MERGE_EVENT_TYPES = frozenset({"pr_merged"})
-COMMIT_EVENT_TYPES = frozenset({"commit_pushed"})
+COMMIT_EVENT_TYPES = frozenset({"commit_pushed", "PushEvent"})
 
 
 @dataclass
@@ -280,8 +280,23 @@ def get_team_metrics(
         stats.streams.add(sig.stream)
         if sig.event_type in PR_MERGE_EVENT_TYPES:
             stats.pr_merges += 1
+        elif sig.event_type == "PullRequestEvent":
+            if isinstance(sig.payload, dict):
+                inner_payload = sig.payload.get("payload") if isinstance(sig.payload.get("payload"), dict) else {}
+                action = sig.payload.get("action") or inner_payload.get("action")
+                if action == "merged":
+                    stats.pr_merges += 1
         if sig.event_type in COMMIT_EVENT_TYPES:
-            stats.commits += 1
+            commit_count = 1
+            if isinstance(sig.payload, dict):
+                if "commit_count" in sig.payload:
+                    commit_count = sig.payload.get("commit_count")
+                elif "payload" in sig.payload and isinstance(sig.payload.get("payload"), dict):
+                    inner_payload = sig.payload.get("payload")
+                    commits_list = inner_payload.get("commits")
+                    if isinstance(commits_list, list):
+                        commit_count = len(commits_list)
+            stats.commits += commit_count if isinstance(commit_count, int) else 1
         stats.bump_last_active(sig.timestamp)
 
     # ── Pass 2: goals → roster membership + last_active (no signal yet) ───

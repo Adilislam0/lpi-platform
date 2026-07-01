@@ -257,6 +257,17 @@ export const createGoalApi = (baseUrl) => {
       return await response.json();
     },
 
+    async getTeamMetrics(inactiveThresholdDays = 3) {
+      const response = await fetch(`${BASE_URL}/api/v1/metrics/team?inactive_threshold_days=${inactiveThresholdDays}`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to fetch team metrics");
+      }
+      return await response.json();
+    },
+
     async submitRecommendationFeedback(userId, feedback) {
       const response = await fetch(`${BASE_URL}/api/v1/recommendations/${userId}/feedback`, {
         method: "POST",
