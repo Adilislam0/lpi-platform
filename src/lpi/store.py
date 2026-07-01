@@ -155,8 +155,10 @@ def update_goal(goal_id: str, updates: dict) -> Goal:
 
 
 def delete_goal(goal_id: str) -> None:
-    """Delete a goal row by its UUID."""
-    _get_client().table("goals").delete().eq("id", goal_id).execute()
+    """Delete a goal row by its UUID and all its associated activity signals."""
+    client = _get_client()
+    client.table("activity_signals").delete().eq("goal_id", goal_id).execute()
+    client.table("goals").delete().eq("id", goal_id).execute()
 
 
 # ── Signals (Phase 3 — Supabase-backed) ──────────────────────────────────────
@@ -178,6 +180,18 @@ def insert_signal(signal: Signal) -> Signal:
     """
     _get_client().table("activity_signals").insert(signal.model_dump(mode="json")).execute()
     return signal
+
+
+def get_signal_by_github_id(github_event_id: str, user_id: str) -> Signal | None:
+    """Fetch an existing signal matching the given github_event_id and scoped to the user_id"""
+    client = _get_client()
+    res1 = client.table("activity_signals").select("*").eq("user_id", user_id).eq("payload->>github_event_id", github_event_id).execute()
+    if res1.data:
+        return Signal(**cast(dict, res1.data[0]))
+    res2 = client.table("activity_signals").select("*").eq("user_id", user_id).eq("payload->>id", github_event_id).execute()
+    if res2.data:
+        return Signal(**cast(dict, res2.data[0]))
+    return None
 
 
 def list_signals(
@@ -327,6 +341,33 @@ def get_signal(signal_id: str) -> Signal | None:
         return None
     return Signal(**cast(dict, result.data[0]))
 
+def get_user_email(user_id: str) -> str | None:
+    """Fetch a user's email address for notifications."""
+    try:
+        result = _get_client().table("users").select("email").eq("id", user_id).execute()
+        # Cast result.data to a list to check length safely
+        if result.data and len(cast(list, result.data)) > 0:
+            # Cast the first row to a dict before calling .get()
+            row = cast(dict, result.data[0])
+            email = row.get("email")
+            # Ensure the return type strictly matches str | None
+            return str(email) if email else None
+        return None
+    except Exception as e:
+        print(f"Error fetching email for user {user_id}: {e}")
+        return None
+
+def update_user_profile(user_id: str, updates: dict) -> dict | None:
+    """Updates a user's profile information in the public.users table."""
+    try:
+        result = _get_client().table("users").update(updates).eq("id", user_id).execute()
+        if result.data and len(cast(list, result.data)) > 0:
+            # Explicitly return a dict to satisfy the function signature
+            return cast(dict, result.data[0])
+        return None
+    except Exception as e:
+        print(f"Error updating profile for user {user_id}: {e}")
+        return None
 
 # ── Audit log verification (new — used by tests, also useful for admin tooling) ─
 

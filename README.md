@@ -21,12 +21,13 @@
 9. [Phase 3 — Activity Signals (Module 2)](#9-phase-3--activity-signals-module-2)
 10. [Phase 4 — Recommendation Engine (Module 3)](#10-phase-4--recommendation-engine-module-3)
 11. [Phase 5 — QA, Integration & Polish](#11-phase-5--qa-integration--polish)
-12. [API Reference — Full Endpoint List](#12-api-reference--full-endpoint-list)
-13. [Database Schema](#13-database-schema)
-14. [Testing](#14-testing)
-15. [Project Structure](#15-project-structure)
-16. [Team & Ownership](#16-team--ownership)
-17. [Next Steps & Improvements](#17-next-steps--improvements)
+12. [Phase 5 — Team Metrics & Engineering Velocity (Module 4)](#12-phase-6--team-metrics--engineering-velocity-module-4)
+13. [API Reference — Full Endpoint List](#13-api-reference--full-endpoint-list)
+14. [Database Schema](#14-database-schema)
+15. [Testing](#15-testing)
+16. [Project Structure](#16-project-structure)
+17. [Team & Ownership](#17-team--ownership)
+18. [Next Steps & Improvements](#18-next-steps--improvements)
 
 ---
 
@@ -417,6 +418,10 @@ cp .env.example .env
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Same as above; used by logging utilities |
 | `SUPABASE_JWT_SECRET` | ✅ | JWT signing secret — from `supabase status` or dashboard → Project Settings → API |
 | `GROQ_API_KEY` | ✅ | Groq API key for the LLM layer (free tier) — [console.groq.com](https://console.groq.com) |
+|`SMTP_SERVER`   | ✅ | SMTP server for notifications (e.g., smtp.gmail.com) |
+|`SMTP_PORT`   | ✅ | Port for SMTP (e.g., 587) |
+|`SMTP_USER`   | ✅ | Email address for notification dispatch |
+|`SMTP_PASS`   | ✅ | App-specific password for email account |
 | `ANTHROPIC_API_KEY` | Optional | Claude API key — alternate LLM provider |
 | `LLM_PROVIDER` | Optional | `groq` (default) or `anthropic` |
 | `LLM_MODEL` | Optional | Default: `llama-3.3-70b-versatile` (Groq) |
@@ -563,7 +568,7 @@ DELETE /goals/{id}
 
 ---
 
-## 8. Phase 3 — Activity Signals (Module 2)
+## 9. Phase 3 — Activity Signals (Module 2)
 
 **Timeline:** Week 2–3  
 **Owner:** Adil Islam · **QA:** Daksh Garg / Jaivardhan Singh
@@ -644,7 +649,7 @@ The platform is wired to receive real Boardy events via ngrok tunnel:
 
 ---
 
-## 9. Phase 4 — Recommendation Engine (Module 3)
+## 10. Phase 4 — Recommendation Engine (Module 3)
 
 **Timeline:** Week 3–4  
 **Endpoint owner:** Adil Islam · **Algorithm owner:** Jaivardhan Singh · **Orchestration:** Daksh Garg
@@ -717,7 +722,7 @@ Always returns exactly 3 recommendations regardless of LLM availability, DB stat
 
 ---
 
-## 10. Phase 5 — QA, Integration & Polish
+## 11. Phase 5 — QA, Integration & Polish
 
 **Timeline:** Week 4  
 
@@ -743,7 +748,77 @@ Always returns exactly 3 recommendations regardless of LLM availability, DB stat
 
 ---
 
-## 11. API Reference — Full Endpoint List
+## 12. Phase 5 — Team Metrics & Engineering Velocity (Module 4)
+
+**Timeline:** Week 5 (post–Demo Day, June 28–29)
+**Owner:** Adil Islam · **QA:** Daksh Garg
+**Priority:** P1 — requested directly by Nicolas, no 30-day data warmup required
+
+### What was built
+
+A new **admin-only** endpoint that turns existing signal/goal/transition data into a team-wide engineering velocity and inactivity dashboard feed. No new tables and no new ingestion path — it reads what Modules 1 and 2 were already recording (`activity_signals`, `goals`, `goal_phase_transitions`) and aggregates it into one response.
+
+**Key files:**
+- `src/lpi/routers/metrics.py` — new router; `GET /api/v1/metrics/team` (Adil)
+- `src/lpi/models.py` — `TeamSummary`, `UserVelocity`, `InactiveUserDetail`, `GoalsSummary`, `TeamMetrics` (Adil)
+- `src/lpi/store.py` — `list_goal_phase_transitions()`; `clear_all()` extended to wipe `goal_phase_transitions` (test-isolation fix found while building this) (Adil)
+- `src/lpi/main.py` — `metrics` router registered under `/api/v1/metrics` (Adil)
+- `tests/conftest.py` — `admin_client` fixture for admin-gated endpoint testing (Adil)
+- `tests/test_metrics.py` — 16 tests: auth gating, empty state, signal aggregation, active/inactive classification, goal-advance counting, pagination boundary, timezone parsing (Adil)
+
+### Metrics endpoint
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/metrics/team` | Admin-only. Team-wide signal/PR/commit/inactivity aggregation |
+
+### Response shape
+
+```
+team_summary
+  ├── total_signals
+  ├── active_users
+  ├── inactive_users
+  ├── avg_signals_per_active_user
+  ├── total_pr_merges
+  └── total_commits
+
+per_user_velocity
+  └── {user_id}
+        ├── signal_count
+        ├── pr_merges
+        ├── commits
+        ├── goal_advances
+        ├── last_active
+        └── streams[]
+
+inactive_users[]
+  └── { user_id, days_inactive, last_seen }
+
+goals_summary
+  ├── total_goals
+  └── by_phase { reality-emulation, concurrent-engineering, ... }
+```
+
+### Key design decisions
+
+- **Admin-gated** — same `403` pattern as `GET /api/v1/users/map`; this is a cross-user aggregate, not something any authenticated caller should read.
+- **Roster = anyone with a data footprint** — the team roster is the union of every `user_id` seen across signals, goals, and phase transitions (not pulled from Supabase Auth's user list). A person only appears once they've done *something*; a brand-new, zero-activity team member is not yet tracked (flagged to product as a known boundary, not a bug).
+- **`pr_merges` / `commits`** only count the canonical `pr_merged` / `commit_pushed` event types from the merge-filtered GitHub ingestion script — raw, unfiltered GitHub events from the dynamic per-goal sync path count toward `signal_count` but not toward confirmed merges/commits.
+- **`goal_advances`** counts forward SMILE phase transitions only (`smile.PHASE_ORDER`); backward re-evaluation moves are valid SMILE usage but excluded from "velocity."
+- **`inactive_threshold_days`** — tunable query param, default `3` days (matches the team's daily-log cadence).
+- **Pagination** — signals are paged through in the app layer (200/call, capped at 10,000 rows with a `system_logs` warning if hit); a SQL-aggregate migration is filed as a fast-follow for when the dataset outgrows this.
+
+### PR history
+
+| PR | Description | Status |
+|----|-------------|--------|
+| #46 | `feat(metrics): add GET /api/v1/metrics/team` — engineering velocity & inactivity | ✅ Merged |
+| #48 | Review fixes (Daksh) — defensive UTC-coercion on transition timestamps, decorator-placement fix | ✅ Merged |
+
+---
+
+## 13. API Reference — Full Endpoint List
 
 All endpoints require `Authorization: Bearer <supabase-jwt>` except `/health`.
 
@@ -780,6 +855,12 @@ All endpoints require `Authorization: Bearer <supabase-jwt>` except `/health`.
 | `POST` | `/api/v1/recommendations/{user_id}/run` | ✅ JWT | Run full LangGraph pipeline — always returns 3 cards |
 | `POST` | `/api/v1/recommendations/{user_id}/by-goal/{goal_id}` | ✅ JWT | Run pipeline scoped to one goal + its linked signals |
 
+### Metrics — `/api/v1/metrics`
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/v1/metrics/team` | ✅ JWT (admin only) | Team-wide velocity + inactivity aggregation — `?inactive_threshold_days=` (default 3, 0–90) |
+
 ### Webhooks — `/api/v1/webhooks`
 
 | Method | Path | Auth | Description |
@@ -798,7 +879,7 @@ All endpoints require `Authorization: Bearer <supabase-jwt>` except `/health`.
 
 ---
 
-## 12. Database Schema
+## 14. Database Schema
 
 All migrations live in `supabase/migrations/`. Run `supabase db push` to apply them all in order.
 
@@ -814,6 +895,9 @@ All migrations live in `supabase/migrations/`. Run `supabase db push` to apply t
 | `20260615000000_signals_rls_and_log_action.sql` | RLS on `activity_signals` + CHECK fix | Adil |
 | `20260621000000_create_recommendation_feedback.sql` | `recommendation_feedback` | Aryan |
 | `20260625000000_activity_signals_goal_fk.sql` | `goal_id` FK on `activity_signals` + strict goal-scoped RLS | Jaivardhan |
+| `20260627000000_create_notifications.sql` | notifications | Aditi |
+| `20260630000002_create_users.sql` | users profile table | Aditi |
+| `20260630000003_user_sync_trigger.sql` | Auth-to-Profile Sync Trigger | Aditi |
 
 ### Table overview
 
@@ -825,6 +909,8 @@ All migrations live in `supabase/migrations/`. Run `supabase db push` to apply t
 | `system_logs` | Platform-level events (`info`, `warning`, `error`) |
 | `activity_signals` | All ingested activity events from all streams |
 | `recommendation_feedback` | User accept/dismiss decisions on recommendation cards |
+| `notifications` | Audit trail of sent notifications (prevents duplicates) |
+| `users` | User authentication data + profile metadata (name, email, dob, gender, bio) |
 
 ### Useful SQL queries
 
@@ -846,7 +932,7 @@ SELECT * FROM system_logs WHERE level = 'error' ORDER BY logged_at DESC;
 
 ---
 
-## 13. Testing
+## 15. Testing
 
 ### Run tests
 
@@ -862,6 +948,7 @@ pytest tests/test_activity_signals.py -v   # Signal endpoints (all filters)
 pytest tests/test_recommendations.py -v    # Recommendation engine + endpoint
 pytest tests/test_rate_limit.py -v         # Rate limiting
 pytest tests/test_webhooks.py -v           # GitHub webhook routing
+pytest tests/test_metrics.py -v            # Team metrics endpoint
 pytest tests/test_smoke.py -v              # Boot + invariant checks
 ```
 
@@ -876,14 +963,14 @@ Requirements:
 
 ---
 
-## 14. Project Structure
+## 16. Project Structure
 
 ```
 lpi-platform/
 ├── src/lpi/
 │   ├── main.py                      # FastAPI app, router registration, health endpoint
 │   ├── config.py                    # Pydantic Settings — reads all .env vars
-│   ├── models.py                    # Pydantic schemas (Goal, Signal, Recommendation, SmilePhase)
+│   ├── models.py                    # Pydantic schemas (Goal, Signal, Recommendation, SmilePhase, TeamMetrics)
 │   ├── smile.py                     # Phase order, transition rules, descriptions
 │   ├── scoring.py                   # Composite score formula: priority×0.5 + phase×0.3 + urgency×0.2
 │   ├── store.py                     # All Supabase CRUD — single persistence entry point
@@ -897,6 +984,7 @@ lpi-platform/
 │   │   ├── goals.py                 # POST/GET/PATCH/DELETE /api/v1/goals
 │   │   ├── signals.py               # POST/GET /api/v1/signals
 │   │   ├── recommendations.py       # GET/POST /api/v1/recommendations
+│   │   ├── metrics.py               # GET /api/v1/metrics/team (admin-only)
 │   │   ├── webhooks.py              # POST /api/v1/webhooks/github
 │   │   ├── github_auth.py           # GitHub OAuth + repo tracking
 │   │   ├── me.py                    # Caller profile endpoint
@@ -913,6 +1001,7 @@ lpi-platform/
 │   ├── test_recommendations.py      # Recommendation engine + endpoint contract
 │   ├── test_rate_limit.py           # Rate limiting
 │   ├── test_webhooks.py             # GitHub webhook routing
+│   ├── test_metrics.py              # Team metrics endpoint — auth, aggregation, edge cases
 │   └── test_smoke.py                # Boot + platform invariants
 │
 ├── supabase/
@@ -938,12 +1027,12 @@ lpi-platform/
 
 ---
 
-## 15. Team & Ownership
+## 17. Team & Ownership
 
 | Name | Role | Primary Ownership |
 |------|------|-------------------|
 | **Jaivardhan Singh** | Phase 1 Lead + Scoring / Auth / DB | `store.py`, `scoring.py`, `langgraph_agent.py`, auth middleware |
-| **Adil Islam** | Backend Dev + Team Lead (Phase 2→3) | `main.py`, `goals.py`, `signals.py`, `recommendations.py`, `utils/logging.py` |
+| **Adil Islam** | Backend Dev + Team Lead (Phase 2→3) | `main.py`, `goals.py`, `signals.py`, `recommendations.py`, `metrics.py`, `utils/logging.py` |
 | **Daksh Garg** | Phase 3 Lead + QA | `agent_pipeline.py`, QA matrices, `docs/qa/` |
 | **Aditi Mehta** | Seed Data + Webhooks | `data/intern_profiles.json`, `routers/webhooks.py`, simulation scripts |
 | **Aryan** | QA + Security | `middleware/rate_limit.py`, `github_auth.py`, DB schemas |
@@ -954,7 +1043,7 @@ lpi-platform/
 
 ---
 
-## 16. Next Steps & Improvements
+## 18. Next Steps & Improvements
 
 ### Immediate (pre-handoff)
 
@@ -969,6 +1058,8 @@ lpi-platform/
 - [ ] **GitHub webhook persistence:** Re-enable `store.insert_signal()` call in `routers/webhooks.py` (currently commented out for linting reasons)
 - [ ] **Log transition logger:** Migrate `log_transition()` from `print()` to `logger.exception()` for Supabase failure reporting (same fix already applied to `log_user_activity()`)
 - [ ] **Frontend completion:** Wire recommendation feedback (accept/dismiss) UI through to `POST /recommendations/{user_id}/feedback`
+- [ ] **Team metrics at scale:** Migrate `GET /api/v1/metrics/team`'s in-app aggregation to a SQL-layer aggregate (Postgres RPC / `GROUP BY`) once `activity_signals` outgrows the current in-memory pagination cap
+- [ ] **Team metrics roster:** Confirm with product/Nicolas whether zero-activity team members should be tracked in `inactive_users` — currently only users with at least one signal/goal/transition are visible
 
 ### Longer-term
 

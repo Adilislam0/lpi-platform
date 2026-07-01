@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request, status
 
 from lpi import store
 from lpi.models import Signal
+from lpi.notifications import create_notification_if_new
 from lpi.routers.github_auth import repo_db
 
 router = APIRouter()
@@ -46,14 +47,19 @@ async def github_webhook_receiver(request: Request):
         }
 
     # 3. Catch Pushed Commits
-    elif event_type == "push" and payload.get("commits"):
+    elif event_type == "push":
+        # Webhook 'push' event has 'commits' and 'ref' at the top level
+        commits = payload.get("commits", [])
+        ref = payload.get("ref", "")
+        
         signal_data = {
             "event_type": "commit_pushed",
             "payload": {
-                "repo": payload["repository"]["name"],
-                "branch": payload.get("ref", "").replace("refs/heads/", ""),
-                "commit_count": len(payload["commits"]),
-                "last_commit_message": payload["commits"][-1]["message"],
+                "repo": payload.get("repository", {}).get("name"),
+                "branch": ref.replace("refs/heads/", ""),
+                "commit_count": len(commits),
+                "last_commit_message": commits[-1].get("message") if commits else "New code pushed",
+                "explanation": "You're actively pushing code. Keep iterating!"
             },
         }
 
@@ -88,5 +94,12 @@ async def github_webhook_receiver(request: Request):
         )
         store.insert_signal(signal)
         print(f"✅ AUTOMATIC DETECTION: Saved {signal_data['event_type']} for user {user_id} and goal {target_goal_id}!")
+
+        create_notification_if_new(
+            user_id=user_id,
+            signal_id=signal.id,
+            event_type=signal.event_type,
+            payload=signal.payload or {},
+        )
 
     return {"status": "success"}

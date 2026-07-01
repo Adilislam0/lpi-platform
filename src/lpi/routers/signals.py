@@ -66,10 +66,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from lpi import store
 from lpi.middleware.auth import UserContext, get_current_user, get_current_user_context
 from lpi.models import Signal, SignalCreate
-from lpi.utils.logging import log_user_activity
+from lpi.notifications import create_notification_if_new
+from lpi.utils.logging import log_user_activity, logger
 
 router = APIRouter()
 
+def _generate_explanation(event_type: str, payload: dict) -> str:
+    """Generates a rule-based explanation for signals."""
+    if event_type == "commit_pushed":
+        return "You're actively pushing code. Keep iterating!"
+    if event_type == "pr_merged":
+        return "Merging a PR is a significant milestone that moves your goal forward toward next phase."
+    return "Your project is showing activity—every small update contributes to your long-term goals."
 
 # ── Wave 2: POST /api/v1/signals/ ────────────────────────────────────────────
 
@@ -116,6 +124,14 @@ def ingest_signal(
         }
     """
 
+    # Deduplicate raw GitHub/API signals based on github_event_id/id in payload
+    if isinstance(signal.payload, dict):
+        github_event_id = signal.payload.get("github_event_id") or signal.payload.get("id")
+        if github_event_id:
+            existing = store.get_signal_by_github_id(str(github_event_id), user_id)
+            if existing:
+                return existing
+
     # Build the full Signal object.
     # signal.model_dump() spreads all SignalCreate fields (stream, event_type,
     # payload, source) into the Signal constructor. We add the server-assigned
@@ -139,6 +155,22 @@ def ingest_signal(
     # utils/logging.py). Wrapping it here again would be redundant and,
     # worse, gives a false impression that THIS is where a logging failure
     # gets caught — it isn't; this call simply cannot raise.
+    # MAP THE TYPE FOR THE NOTIFICATION TEMPLATE
+    mapped_type = new_signal.event_type
+    if new_signal.event_type == "PushEvent":
+        mapped_type = "commit_pushed"
+    elif new_signal.event_type == "PullRequestEvent":
+        mapped_type = "pr_merged"
+
+    create_notification_if_new(
+        user_id=user_id,
+        signal_id=new_signal.id,
+        event_type=mapped_type,  # Use the mapped semantic key
+        payload={
+            ** (new_signal.payload or {}),
+            "explanation": _generate_explanation(new_signal.event_type, new_signal.payload or {})
+        },
+    )
     log_user_activity(
         user_id=user_id,
         action="signal_ingested",
@@ -356,7 +388,17 @@ async def sync_github_events(
 
         # We only care about code changes and PRs for SMILE phase progression
         if event_type in ["PushEvent", "PullRequestEvent"]:
-            
+            # Deduplicate check: if this event was already ingested (either raw or flattened), skip it!
+            github_event_id = event.get("id")
+            if github_event_id:
+                existing = store.get_signal_by_github_id(str(github_event_id), user_id)
+                if existing:
+                    # If the existing signal is not linked to this goal yet, link it!
+                    if existing.goal_id is None:
+                        existing.goal_id = goal_id
+                        store._get_client().table("activity_signals").update({"goal_id": goal_id}).eq("id", existing.id).execute()
+                    continue
+
             # Build the creation schema, now including the goal_id
             signal_create = SignalCreate(
                 stream="github",
@@ -368,8 +410,13 @@ async def sync_github_events(
 
             # Build the full Signal object (mirroring the logic in ingest_signal)
             now = datetime.now(UTC)
+            
+            # --- FIX 1: Deterministic UUID for Deduplication ---
+            github_event_id = str(event.get("id"))
+            consistent_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, github_event_id))
+            
             new_signal = Signal(
-                id=str(uuid.uuid4()),
+                id=consistent_id,  # <- The database will now recognize duplicates!
                 user_id=user_id,
                 timestamp=now,
                 **signal_create.model_dump()
@@ -377,7 +424,38 @@ async def sync_github_events(
 
             # 3. Ingest into the Database
             store.insert_signal(new_signal)
+            ingested_count += 1
             
+           # --- FIX 2: Trigger the notification service ---
+            if event_type == "PushEvent":
+                notif_type = "commit_pushed"
+                notif_payload = {
+                    "repo": repo_name,
+                    "explanation": "Your project is showing activity—every small update contributes to your long-term goals."
+                }
+            elif event_type == "PullRequestEvent":
+                notif_type = "pr_merged" 
+                gh_payload = event.get("payload", {})
+                pr_data = gh_payload.get("pull_request", {})
+                
+                notif_payload = {
+                    "repo": repo_name,
+                    "pr_number": pr_data.get("number", "Unknown"),
+                    "title": pr_data.get("title", "Pull Request Updated"),
+                    "explanation": _generate_explanation("pr_merged", {})
+                }
+
+            # TRIGGER NOTIFICATION ONCE HERE
+            try:
+                create_notification_if_new(
+                    user_id=user_id,
+                    signal_id=new_signal.id,
+                    event_type=notif_type, 
+                    payload=notif_payload,
+                )
+            except Exception as e:
+                logger.error(f"Notification background task failed: {e}")
+
             # Log the activity
             log_user_activity(
                 user_id=user_id,
@@ -412,8 +490,7 @@ async def sync_github_events(
         "Accepts HMAC-SHA256 signed POST requests from the ZeroClaw CLI. "
         "Verifies signature, normalizes the payload into LPI Signal schema, "
         "and persists to Supabase. No JWT required — auth is the shared secret. "
-        "Returns {status: success} on both new signals and duplicate replays "
-        "so ZeroClaw CLI does not retry unnecessarily."
+        "Returns {status: success} on both new signals and duplicate replays."
     ),
 )
 async def receive_zeroclaw_webhook(request: Request) -> dict:
@@ -423,18 +500,8 @@ async def receive_zeroclaw_webhook(request: Request) -> dict:
         1. Verify HMAC-SHA256 signature (401 if wrong/missing)
         2. Parse JSON body
         3. Normalize ZeroClaw payload → LPI Signal fields
-        4. Build Signal object with stream="zeroclaw", source="zeroclaw_webhook"
-        5. Persist via store.insert_signal() — UNIQUE constraint handles dedup
-        6. Return {"status": "success"} — always, so ZeroClaw CLI doesn't retry
-
-    Unknown event types (e.g. "scan.unknown") are gracefully skipped with a
-    200 OK so ZeroClaw does not treat them as delivery failures.
-
-    Test with:
-        Generate secret: python -c "import secrets; print(secrets.token_hex(32))"
-        Set ZEROCLAW_WEBHOOK_SECRET=<secret> in .env
-        Run ZeroClaw CLI locally → it will POST to your ngrok URL
-        Verify: GET /api/v1/signals/?stream=zeroclaw
+        4. Persist via store.insert_signal() — UNIQUE constraint handles dedup
+        5. Return {"status": "success"} always so ZeroClaw CLI does not retry
     """
     import json as _json
 
@@ -448,10 +515,7 @@ async def receive_zeroclaw_webhook(request: Request) -> dict:
     try:
         raw_payload = _json.loads(body)
     except _json.JSONDecodeError as exc:
-        import logging
-        logging.getLogger(__name__).warning(
-            "ZeroClaw webhook: invalid JSON body — %s", exc
-        )
+        logger.warning("ZeroClaw webhook: invalid JSON body — %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Request body is not valid JSON.",
@@ -461,16 +525,10 @@ async def receive_zeroclaw_webhook(request: Request) -> dict:
     try:
         normalized = normalize(raw_payload)
     except ZeroClawNormalizationError as exc:
-        import logging
-        logging.getLogger(__name__).warning(
-            "ZeroClaw webhook: skipping unknown event — %s", exc
-        )
-        # Return 200 so ZeroClaw CLI does not retry unknown events
+        logger.warning("ZeroClaw webhook: skipping unknown event — %s", exc)
         return {"status": "success", "detail": "event_type not recognised, skipped"}
 
-    # 4. Build Signal — no user_id (service-to-service, not a Supabase user)
-    #    We use a placeholder that makes it easy to filter:
-    #    GET /api/v1/signals/?stream=zeroclaw
+    # 4. Build Signal
     new_signal = Signal(
         id=str(uuid.uuid4()),
         user_id="zeroclaw-service",
@@ -481,16 +539,14 @@ async def receive_zeroclaw_webhook(request: Request) -> dict:
         timestamp=normalized.timestamp,
     )
 
-    # 5. Persist — UNIQUE constraint on id handles duplicate replays silently
+    # 5. Persist — UNIQUE constraint handles duplicate replays silently
     try:
         store.insert_signal(new_signal)
     except Exception as exc:
         err_str = str(exc).lower()
         if "duplicate" in err_str or "unique" in err_str:
-            # Idempotent — already stored, tell ZeroClaw it's fine
             return {"status": "success", "detail": "duplicate event, already stored"}
-        import logging
-        logging.getLogger(__name__).exception(
+        logger.exception(
             "ZeroClaw webhook: unexpected DB error for signal %s", new_signal.id
         )
         raise HTTPException(
