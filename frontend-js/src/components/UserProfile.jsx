@@ -173,13 +173,17 @@ export const UserProfile = ({ userName, goals = [], userId }) => {
               </div>
               <div>
                 <label className="profile-modal-label">Gender</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Female, Male, Non-binary"
+                <select
                   value={draft.gender}
                   onChange={e => setDraft(d => ({ ...d, gender: e.target.value }))}
                   className="form-input"
-                />
+                  style={{ color: draft.gender ? '#fff' : 'rgba(255,255,255,0.4)', background: '#1a1a2e' }}
+                >
+                  <option value="" disabled style={{ color: 'rgba(255,255,255,0.4)' }}>Select gender</option>
+                  <option value="Male" style={{ color: '#fff' }}>Male</option>
+                  <option value="Female" style={{ color: '#fff' }}>Female</option>
+                  <option value="Others" style={{ color: '#fff' }}>Others</option>
+                </select>
               </div>
               <div>
                 <label className="profile-modal-label">Date of Birth</label>
