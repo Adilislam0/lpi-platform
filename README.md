@@ -1034,7 +1034,7 @@ lpi-platform/
 | **Jaivardhan Singh** | Phase 1 Lead + Scoring / Auth / DB | `store.py`, `scoring.py`, `langgraph_agent.py`, auth middleware |
 | **Adil Islam** | Backend Dev + Team Lead (Phase 2→3) | `main.py`, `goals.py`, `signals.py`, `recommendations.py`, `metrics.py`, `utils/logging.py` |
 | **Daksh Garg** | Phase 3 Lead + QA | `agent_pipeline.py`, QA matrices, `docs/qa/` |
-| **Aditi Mehta** | Seed Data + Webhooks | `data/intern_profiles.json`, `routers/webhooks.py`, simulation scripts |
+| **Aditi Mehta** | Seed Data + Webhooks + notifications | `data/intern_profiles.json`, `routers/webhooks.py`, simulation scripts, `routers/github_auth.py`, `notifications.py`   |
 | **Aryan** | QA + Security | `middleware/rate_limit.py`, `github_auth.py`, DB schemas |
 | **Yashika Verma** | SMILE Logging / Floater | `smile.py`, `test_smile.py`, `test_scoring.py`, logging spec |
 | **Jahanvi Gupta** | Frontend | `frontend-js/` — Goals UI, Signals timeline, Recommendation cards |
