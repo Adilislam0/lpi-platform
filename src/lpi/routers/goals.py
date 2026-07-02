@@ -35,9 +35,10 @@ TASK C CHANGE — What changed and WHY
 ═══════════════════════════════════════════════════════════
 """
 
+import logging
 import uuid
 from datetime import UTC, datetime
-import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from lpi import store
