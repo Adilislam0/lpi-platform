@@ -1,0 +1,38 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "8020:8020"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    networks:
+      - lpibackend_default
+      - web
+    command: uvicorn lpi.main:app --host 0.0.0.0 --port 8020 --reload
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web"
+
+      # HTTPS router
+      - "traefik.http.routers.lpi-backend.rule=Host(`lpi-backend.lifeatlas.online`)"
+      - "traefik.http.routers.lpi-backend.entrypoints=websecure"
+      - "traefik.http.routers.lpi-backend.tls.certresolver=le"
+
+      # HTTP router → redirect to HTTPS
+      - "traefik.http.routers.lpi-backend-http.rule=Host(`lpi-backend.lifeatlas.online`)"
+      - "traefik.http.routers.lpi-backend-http.entrypoints=web"
+      - "traefik.http.routers.lpi-backend-http.middlewares=dc-backend-https-redirect"
+
+      # Redirect middleware
+      - "traefik.http.middlewares.lpi-backend-https-redirect.redirectscheme.scheme=https"
+
+      # Service
+      - "traefik.http.services.lpi-backend.loadbalancer.server.port=8020"
+
+networks:
+  lpibackend_default:
+    driver: bridge
+  web:
+    external: true
