@@ -37,19 +37,21 @@ TASK C CHANGE — What changed and WHY
 
 import uuid
 from datetime import UTC, datetime
-
-from fastapi import APIRouter, Depends, HTTPException, Query, logger, status
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from lpi import store
 from lpi.middleware.auth import UserContext, get_current_user, get_current_user_context
-from lpi.models import DeleteResponse, Goal, GoalCreate, GoalUpdate, SmilePhase
-from lpi.models import Signal
+from lpi.models import DeleteResponse, Goal, GoalCreate, GoalUpdate, Signal, SmilePhase
 from lpi.notifications import create_notification_if_new
 
 # TASK C: import the SMILE-aware sort function
 from lpi.scoring import sort_goals_by_score
 from lpi.smile import validate_phase_transition
 from lpi.utils.logging import log_transition, log_user_activity
+
+logger = logging.getLogger(__name__)
+
 
 def trigger_goal_notification(user_id: str, event_type: str, goal_id: str, goal_title: str, phase: str = "N/A"):
     """Fires a platform signal and triggers the notification engine for goal events."""
