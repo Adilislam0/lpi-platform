@@ -194,11 +194,18 @@ export function SignalsView({
 }) {
   const [filterStream, setFilterStream] = useState("");
   const [filterSource, setFilterSource] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const streams = [...new Set(signals.map((s) => s.stream))];
   const sources = [...new Set(signals.map((s) => s.source))];
 
   // Auto-sync disabled for demo to prevent duplicate signals (handled by backend sync/webhooks)
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterStream, filterSource]);
 
   const filtered = useMemo(() => {
     const getSignalTime = (s) => {
@@ -218,10 +225,16 @@ export function SignalsView({
       .sort((a, b) => getSignalTime(b) - getSignalTime(a));
   }, [signals, filterStream, filterSource]);
 
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+
+  const paginatedSignals = useMemo(() => {
+    return filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  }, [filtered, currentPage, itemsPerPage]);
+
   // Group by date
   const groupedSignals = useMemo(() => {
     const groups = {};
-    filtered.forEach((signal) => {
+    paginatedSignals.forEach((signal) => {
       let targetDate = new Date(signal.timestamp);
       if (signal.payload && signal.payload.created_at) {
         const payloadDate = new Date(signal.payload.created_at);
@@ -239,7 +252,7 @@ export function SignalsView({
       groups[dateStr].push(signal);
     });
     return groups;
-  }, [filtered]);
+  }, [paginatedSignals]);
 
   return (
     <div className="signals-view-container">
@@ -310,6 +323,35 @@ export function SignalsView({
                   </div>
                 ))}
               </div>
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="signals-pagination-controls">
+                  <button
+                    onClick={() => {
+                      setCurrentPage((prev) => Math.max(prev - 1, 1));
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    disabled={currentPage === 1}
+                    className="signals-pagination-btn"
+                  >
+                    Previous
+                  </button>
+                  <span className="signals-pagination-info">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setCurrentPage((prev) => Math.min(prev + 1, totalPages));
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    disabled={currentPage === totalPages}
+                    className="signals-pagination-btn"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
