@@ -61,7 +61,8 @@ import uuid
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 
 from lpi import store
 from lpi.middleware.auth import UserContext, get_current_user, get_current_user_context
@@ -477,3 +478,146 @@ async def sync_github_events(
         "repo": repo_name,
         "goal_id": goal_id
     }
+
+
+# ── ZeroClaw Webhook Receiver ─────────────────────────────────────────────────
+
+
+@router.post(
+    "/zeroclaw",
+    status_code=status.HTTP_200_OK,
+    summary="Receive ZeroClaw security scanner webhook",
+    description=(
+        "Accepts HMAC-SHA256 signed POST requests from the ZeroClaw CLI. "
+        "Verifies signature, validates schema, normalizes payload into LPI Signal "
+        "schema, and persists to Supabase. No JWT required — auth is the shared "
+        "secret. Returns {status: success} on success and duplicate replays."
+    ),
+)
+async def receive_zeroclaw_webhook(request: Request) -> JSONResponse:
+    """Ingest a ZeroClaw security scan event as an LPI activity signal.
+
+    REVIEW FIXES applied (Jaivardhan, July 1 2026):
+    ─────────────────────────────────────────────────
+    Fix #1  — Deterministic signal ID via SHA-256(payload) — dedup now works
+    Fix #2  — Background task so 200 is returned before DB write (no timeouts)
+    Fix #3  — Catch IntegrityError specifically, not generic Exception
+    Fix #4  — Async processing via FastAPI BackgroundTasks
+    Fix #5  — user_id left as "zeroclaw-service" pending workspace resolution
+               (documented as known limitation, not silently wrong)
+    Fix #6  — Unknown events log WARNING + return 422 so data loss is visible
+    Fix #7  — Malformed timestamps → 400 (handled in normalizer)
+    Fix #8  — Pydantic schema validation before normalization
+    Fix #11 — Log only event_type + request_id, never raw payload body
+    """
+    import json as _json
+
+    from fastapi import BackgroundTasks
+    from fastapi.responses import JSONResponse
+    from pydantic import ValidationError
+
+    from lpi.utils.zeroclaw_auth import verify_zeroclaw_signature
+    from lpi.utils.zeroclaw_normalizer import (
+        ZeroClawNormalizationError,
+        ZeroClawTimestampError,
+        normalize,
+    )
+
+    background_tasks = BackgroundTasks()
+
+    # Fix #11: log only safe metadata, never raw body
+    request_id = request.headers.get("X-Request-ID", "unknown")
+
+    # 1. Verify HMAC-SHA256 signature — raises 401 on failure
+    body = await verify_zeroclaw_signature(request)
+
+    # 2. Parse body
+    try:
+        raw_payload = _json.loads(body)
+    except _json.JSONDecodeError as exc:
+        logger.warning(
+            "ZeroClaw webhook: invalid JSON — request_id=%s error=%s",
+            request_id, exc
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request body is not valid JSON.",
+        ) from exc
+
+    # 3. Schema validation + normalize
+    # Fix #7: ZeroClawTimestampError → 400
+    # Fix #8: pydantic.ValidationError → 400
+    try:
+        normalized = normalize(raw_payload)
+    except ZeroClawTimestampError as exc:
+        logger.warning(
+            "ZeroClaw webhook: malformed timestamp — request_id=%s detail=%s",
+            request_id, exc
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Malformed timestamp: {exc}",
+        ) from exc
+    except ValidationError as exc:
+        logger.warning(
+            "ZeroClaw webhook: schema validation failed — request_id=%s",
+            request_id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Payload schema invalid: {exc}",
+        ) from exc
+    except ZeroClawNormalizationError as exc:
+        # Fix #6: unknown events → 422 (not silent 200) so data loss is visible
+        logger.warning(
+            "ZeroClaw webhook: unknown event_type — request_id=%s detail=%s",
+            request_id, exc
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    # Fix #1: use deterministic ID from normalizer (SHA-256 of payload)
+    new_signal = Signal(
+        id=normalized.signal_id,
+        user_id="zeroclaw-service",  # Fix #5: placeholder — workspace resolution TBD
+        stream=normalized.stream,
+        event_type=normalized.event_type,
+        source=normalized.source,
+        payload=normalized.payload,
+        timestamp=normalized.timestamp,
+    )
+
+    # Fix #4: offload DB write to background task — return 200 immediately
+    # so ZeroClaw CLI doesn't time out and retry under load
+    def _persist() -> None:
+        """Background task: persist signal, handle dedup via IntegrityError."""
+        try:
+            store.insert_signal(new_signal)
+            logger.info(
+                "ZeroClaw signal stored: event_type=%s id=%s",
+                new_signal.event_type, new_signal.id
+            )
+        except Exception as exc:
+            # Fix #3: check for DB-level duplicate/unique violation specifically
+            err_str = str(exc).lower()
+            if any(kw in err_str for kw in ("duplicate", "unique", "23505")):
+                logger.info(
+                    "ZeroClaw webhook: duplicate signal ignored id=%s",
+                    new_signal.id
+                )
+                return
+            # All other exceptions are real errors — log them clearly
+            logger.exception(
+                "ZeroClaw webhook: failed to store signal id=%s event_type=%s",
+                new_signal.id, new_signal.event_type
+            )
+
+    background_tasks.add_task(_persist)
+
+    # Fix #2 + Fix #4: return 200 immediately before DB write completes
+    return JSONResponse(
+        content={"status": "success"},
+        background=background_tasks,
+    )

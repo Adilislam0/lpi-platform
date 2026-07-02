@@ -19,10 +19,13 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_client_secret: str = ""
     admin_user_ids: str = ""
+    # ── Notification service (SMTP) ───────────────────────────────────────────
     smtp_server: str = "smtp.gmail.com"
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_pass: str = ""
+    # ── ZeroClaw webhook integration ──────────────────────────────────────────
+    zeroclaw_webhook_secret: str = ""
 
     @property
     def admin_ids_list(self) -> list[str]:
