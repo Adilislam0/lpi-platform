@@ -38,16 +38,47 @@ TASK C CHANGE — What changed and WHY
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, logger, status
 
 from lpi import store
 from lpi.middleware.auth import UserContext, get_current_user, get_current_user_context
 from lpi.models import DeleteResponse, Goal, GoalCreate, GoalUpdate, SmilePhase
+from lpi.models import Signal
+from lpi.notifications import create_notification_if_new
 
 # TASK C: import the SMILE-aware sort function
 from lpi.scoring import sort_goals_by_score
 from lpi.smile import validate_phase_transition
 from lpi.utils.logging import log_transition, log_user_activity
+
+def trigger_goal_notification(user_id: str, event_type: str, goal_id: str, goal_title: str, phase: str = "N/A"):
+    """Fires a platform signal and triggers the notification engine for goal events."""
+    try:
+        signal_id = str(uuid.uuid4())
+        new_signal = Signal(
+            id=signal_id,
+            user_id=user_id,
+            timestamp=datetime.now(UTC),
+            stream="platform", 
+            event_type=event_type,
+            source="lpi_app",
+            goal_id=goal_id,
+            payload={"title": goal_title, "phase": phase}
+        )
+        store.insert_signal(new_signal)
+
+        create_notification_if_new(
+            user_id=user_id,
+            signal_id=signal_id,
+            event_type=event_type,
+            payload={
+                "title": goal_title,
+                "phase": phase,
+                "explanation": "Your platform activity drives progress."
+            },
+        )
+    except Exception as e:
+        logger.error(f"Failed to trigger {event_type} notification: {e}")
 
 router = APIRouter()
 
@@ -87,7 +118,7 @@ def create_goal(goal: GoalCreate, user_id: str = Depends(get_current_user)) -> G
             "urgency_flag": new_goal.urgency_flag,
         },
     )
-
+    trigger_goal_notification(new_goal.user_id, "goal_created", new_goal.id, new_goal.title)
     return new_goal
 
 
@@ -185,7 +216,13 @@ def update_goal(goal_id: str, update: GoalUpdate, user_id: str = Depends(get_cur
         resource_id=goal_id,
         metadata={"updated_fields": list(update_data.keys())},
     )
-
+    if update.smile_phase is not None and update.smile_phase != goal.smile_phase:
+        # Check if the new phase indicates completion 
+        phase_str = str(updated_goal.smile_phase).lower()
+        if "wisdom" in phase_str or "perpetual" in phase_str:
+            trigger_goal_notification(goal.user_id, "goal_completed", goal_id, updated_goal.title, phase_str)
+        else:
+            trigger_goal_notification(goal.user_id, "phase_advanced", goal_id, updated_goal.title, phase_str)
     return updated_goal
 
 

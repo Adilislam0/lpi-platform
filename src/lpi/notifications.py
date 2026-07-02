@@ -17,7 +17,9 @@ _NOTIF_TEMPLATES = {
     "commit_pushed":    ("New Commits 📦", "A new push was detected in {repo}.\n\n💡 Insight: {explanation}"),
     "phase_advanced":   ("SMILE Phase Advanced ✨", "Goal '{title}' moved to {phase}."),
     "inactivity_alert": ("Inactivity Detected ⚠️", "No activity detected in {repo} for {days} days."),
-    "pr_opened": ("PR Opened 🚀", "{actor} opened PR #{pr_number}: '{title}' in {repo}.\n\n💡 Insight: {explanation}")
+    "pr_opened": ("PR Opened 🚀", "{actor} opened PR #{pr_number}: '{title}' in {repo}.\n\n💡 Insight: {explanation}"),
+    "goal_created":     ("New Goal Set 🎯", "You created the goal: '{title}'. Time to execute!\n\n💡 Insight: {explanation}"),
+    "goal_completed":   ("Goal Completed 🏆", "Congratulations on crossing the finish line for '{title}'!\n\n💡 Insight: {explanation}")
 }
 
 def _dispatch_email(target_email: str, title: str, body: str) -> None:
